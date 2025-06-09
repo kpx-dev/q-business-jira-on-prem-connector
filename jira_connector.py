@@ -277,7 +277,7 @@ class JiraQBusinessConnector:
     
     def get_sync_job_status(self, execution_id: str) -> Dict[str, Any]:
         """Get status of a Q Business sync job"""
-        return self.qbusiness_client.get_data_source_sync_job(execution_id)
+        return self.qbusiness_client.get_sync_job_by_id(execution_id)
     
     def start_qbusiness_sync(self) -> Dict[str, Any]:
         """Start a Q Business data source sync job"""

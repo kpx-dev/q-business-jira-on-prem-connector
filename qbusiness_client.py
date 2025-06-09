@@ -240,33 +240,30 @@ class QBusinessClient:
                 'message': f"Failed to start sync job: {e}"
             }
     
-    def get_data_source_sync_job(self, execution_id: str) -> Dict[str, Any]:
-        """Get status of a data source sync job"""
+    def get_sync_job_by_id(self, execution_id: str) -> Dict[str, Any]:
+        """Get sync job info by execution ID from the list of jobs"""
         try:
-            response = self.client.get_data_source_sync_job(
-                applicationId=self.config.application_id,
-                indexId=self.config.index_id,
-                dataSourceId=self.config.data_source_id,
-                executionId=execution_id
-            )
+            # Since get_data_source_sync_job doesn't exist, we'll search the list
+            list_result = self.list_data_source_sync_jobs(max_results=50)
             
-            return {
-                'success': True,
-                'sync_job': response,
-                'status': response.get('status'),
-                'message': f"Sync job {execution_id} status: {response.get('status')}"
-            }
+            if not list_result['success']:
+                return list_result
             
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
+            # Find the job with matching execution ID
+            for job in list_result['sync_jobs']:
+                if job.get('executionId') == execution_id:
+                    return {
+                        'success': True,
+                        'sync_job': job,
+                        'status': job.get('status'),
+                        'message': f"Sync job {execution_id} status: {job.get('status')}"
+                    }
             
             return {
                 'success': False,
-                'error_code': error_code,
-                'error_message': error_message,
-                'message': f"Failed to get sync job status: {error_code} - {error_message}"
+                'message': f"Sync job {execution_id} not found in recent jobs"
             }
+            
         except Exception as e:
             return {
                 'success': False,

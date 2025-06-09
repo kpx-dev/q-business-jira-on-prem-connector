@@ -35,7 +35,7 @@ class ConnectorConfig(BaseModel):
     
     # Sync settings
     sync_mode: str = Field(default="full", description="Sync mode: 'full' or 'incremental'")
-    batch_size: int = Field(default=100, description="Batch size for document processing")
+    batch_size: int = Field(default=10, description="Batch size for document processing (max 10 for Q Business)")
     max_retries: int = Field(default=3, description="Maximum retry attempts for failed operations")
     retry_delay: int = Field(default=5, description="Delay between retries in seconds")
     
@@ -72,7 +72,7 @@ class ConnectorConfig(BaseModel):
             jira=jira_config,
             aws=aws_config,
             sync_mode=os.getenv("SYNC_MODE", "full"),
-            batch_size=int(os.getenv("BATCH_SIZE", "100")),
+            batch_size=int(os.getenv("BATCH_SIZE", "10")),
             max_retries=int(os.getenv("MAX_RETRIES", "3")),
             retry_delay=int(os.getenv("RETRY_DELAY", "5")),
             include_comments=os.getenv("INCLUDE_COMMENTS", "true").lower() == "true",
