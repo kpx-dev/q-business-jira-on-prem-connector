@@ -143,75 +143,7 @@ class QBusinessClient:
                 'message': f"Failed to prepare documents for custom connector: {e}"
             }
 
-    def batch_put_documents(self, documents: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Upload documents to Q Business using BatchPutDocument"""
-        if not documents:
-            return {
-                'success': True,
-                'processed': 0,
-                'failed': 0,
-                'message': "No documents to upload"
-            }
-        
-        try:
-            # Prepare the batch request
-            request_docs = []
-            for doc in documents:
-                request_doc = {
-                    'id': doc['id'],
-                    'title': doc['title'],
-                    'content': doc['content'],
-                    'contentType': doc.get('contentType', 'PLAIN_TEXT')
-                }
-                
-                # Add attributes if present
-                if 'attributes' in doc and doc['attributes']:
-                    request_doc['attributes'] = doc['attributes']
-                
-                request_docs.append(request_doc)
-            
-            # Execute the batch request
-            response = self.client.batch_put_document(
-                applicationId=self.config.application_id,
-                indexId=self.config.index_id,
-                documents=request_docs
-            )
-            
-            # Process response
-            failed_docs = response.get('failedDocuments', [])
-            processed_count = len(documents) - len(failed_docs)
-            
-            # Log failures
-            for failed_doc in failed_docs:
-                logger.error(f"Failed to upload document {failed_doc.get('id', 'unknown')}: "
-                           f"{failed_doc.get('errorCode', 'Unknown')} - {failed_doc.get('errorMessage', 'Unknown error')}")
-            
-            return {
-                'success': True,
-                'processed': processed_count,
-                'failed': len(failed_docs),
-                'failed_documents': failed_docs,
-                'message': f"Uploaded {processed_count} documents, {len(failed_docs)} failed"
-            }
-            
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            logger.error(f"AWS error during batch upload: {error_code} - {error_message}")
-            
-            return {
-                'success': False,
-                'error_code': error_code,
-                'error_message': error_message,
-                'message': f"Batch upload failed: {error_code} - {error_message}"
-            }
-        except Exception as e:
-            logger.error(f"Unexpected error during batch upload: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'message': f"Batch upload failed: {e}"
-            }
+
     
     def delete_all_data_source_documents(self, execution_id: str) -> Dict[str, Any]:
         """Delete all documents from this data source

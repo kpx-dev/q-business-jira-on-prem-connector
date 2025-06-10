@@ -267,13 +267,7 @@ def test_real_connections():
         if results['overall_success']:
             print("✅ Real connection test passed!")
             
-            # Try to get projects if Jira connection works
-            if results['jira']['success']:
-                project_result = connector.get_projects_info()
-                if project_result['success']:
-                    print(f"   Found {project_result['count']} Jira projects")
-                else:
-                    print(f"   Warning: Could not retrieve projects: {project_result['message']}")
+            # Note: Project info functionality has been removed to simplify the connector
             
             return True
         else:

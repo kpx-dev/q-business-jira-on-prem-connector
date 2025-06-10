@@ -100,10 +100,7 @@ Alternatively, use a JSON configuration file:
 
 ```bash
 # Test connections
-python main.py test
-
-# List available Jira projects
-python main.py projects
+python main.py doctor
 
 # Preview sync (dry run)
 python main.py sync --dry-run
@@ -111,14 +108,11 @@ python main.py sync --dry-run
 # Perform full sync
 python main.py sync
 
-# Start Q Business sync job
-python main.py start-sync
+# Clean sync (delete duplicates first)
+python main.py sync --clean
 
 # Check sync job status
-python main.py status --execution-id <execution-id>
-
-# Use custom configuration file
-python main.py sync --config config.json
+python main.py status
 ```
 
 ### Python API
@@ -137,9 +131,16 @@ connector = JiraQBusinessConnector(config)
 results = connector.test_connections()
 print(f"Connections: {results['overall_success']}")
 
-# Sync issues
-sync_result = connector.sync_issues(dry_run=False)
+# Start sync job and sync issues
+sync_job = connector.start_qbusiness_sync()
+execution_id = sync_job['execution_id']
+
+# Sync issues with execution ID
+sync_result = connector.sync_issues_with_execution_id(execution_id, dry_run=False)
 print(f"Sync completed: {sync_result['success']}")
+
+# Stop sync job
+connector.stop_qbusiness_sync(execution_id)
 
 # Cleanup
 connector.cleanup()
@@ -316,19 +317,17 @@ def lambda_handler(event, context):
 
 ### JiraClient
 - `test_connection()`: Test Jira connectivity
-- `get_projects()`: List available projects
 - `search_issues(jql, start_at, max_results)`: Search issues
-- `get_all_issues_iterator()`: Iterate through all issues
 
 ### QBusinessClient  
 - `test_connection()`: Test Q Business connectivity
-- `batch_put_documents(documents)`: Upload documents
+- `batch_put_documents_with_execution_id(documents, execution_id)`: Upload documents
 - `batch_delete_documents(ids)`: Delete documents
 - `start_data_source_sync()`: Start sync job
 
 ### JiraDocumentProcessor
-- `process_issue(issue)`: Convert issue to Q Business document
-- `create_batch_documents(issues)`: Process multiple issues
+- `process_issue(issue, execution_id)`: Convert issue to Q Business document
+- `create_batch_documents(issues, execution_id)`: Process multiple issues
 
 ## 🤝 Contributing
 

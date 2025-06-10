@@ -35,10 +35,6 @@ def setup_logging(level: str = "INFO"):
     logging.getLogger('botocore').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-
-
-
-
 def cmd_doctor(args, connector: JiraQBusinessConnector):
     """Test connections command"""
     print("🩺 Running connector diagnostics...")
@@ -51,10 +47,6 @@ def cmd_doctor(args, connector: JiraQBusinessConnector):
     else:
         print("❌ Connection test failed!")
         return 1
-
-
-
-
 
 def cmd_status(args, connector: JiraQBusinessConnector):
     """Check sync job status command"""
@@ -167,9 +159,6 @@ def cmd_status(args, connector: JiraQBusinessConnector):
             return 1
 
 
-
-
-
 def cmd_full_sync(args, connector: JiraQBusinessConnector):
     """Complete sync workflow following AWS Q Business custom connector best practices"""
     dry_run = getattr(args, 'dry_run', False)
@@ -220,11 +209,7 @@ def cmd_full_sync(args, connector: JiraQBusinessConnector):
         
         if dry_run:
             # For dry run, just show what would be done
-            if clean_sync:
-                # Simulate the new method for dry run with clean
-                sync_result = connector.sync_issues_with_execution_id(execution_id, dry_run=True, clean_first=True)
-            else:
-                sync_result = connector.sync_issues(dry_run=True)
+            sync_result = connector.sync_issues_with_execution_id(execution_id, dry_run=True, clean_first=clean_sync)
             print(f"✅ Dry run completed. Would sync {sync_result.get('stats', {}).get('uploaded_documents', 0)} documents")
         else:
             # Real sync with execution ID
@@ -333,8 +318,6 @@ Environment Variables:
   JQL_FILTER          - Custom JQL filter
         """
     )
-    
-
     
     parser.add_argument(
         "--log-level", "-l",
