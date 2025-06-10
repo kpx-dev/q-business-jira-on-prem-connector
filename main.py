@@ -50,9 +50,9 @@ def load_config_from_file(config_file: str) -> ConnectorConfig:
     return ConnectorConfig(**config_data)
 
 
-def cmd_test(args, connector: JiraQBusinessConnector):
+def cmd_doctor(args, connector: JiraQBusinessConnector):
     """Test connections command"""
-    print("Testing connections...")
+    print("🩺 Running connector diagnostics...")
     
     results = connector.test_connections()
     
@@ -476,7 +476,7 @@ def main():
         epilog="""
 Examples:
   # Test connections
-  python main.py test
+  python main.py doctor
   
   # List Jira projects  
   python main.py projects
@@ -535,8 +535,8 @@ Environment Variables:
     # Subcommands
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
-    # Test command
-    test_parser = subparsers.add_parser('test', help='Test connections to Jira and Q Business')
+    # Doctor command
+    doctor_parser = subparsers.add_parser('doctor', help='Test connections to Jira and Q Business')
     
     # Projects command
     projects_parser = subparsers.add_parser('projects', help='List available Jira projects')
@@ -593,7 +593,7 @@ Environment Variables:
         
         # Execute command
         command_functions = {
-            'test': cmd_test,
+            'doctor': cmd_doctor,
             'projects': cmd_projects,
             'sync-jira-to-q': cmd_sync,
             'status': cmd_status,
