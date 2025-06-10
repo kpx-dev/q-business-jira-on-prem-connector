@@ -132,9 +132,57 @@ class QBusinessClient:
                 
                 updated_documents.append(updated_doc)
             
-            # Use the regular batch upload with updated documents
-            return self.batch_put_documents(updated_documents)
+            # Execute the batch upload directly
+            request_docs = []
+            for doc in updated_documents:
+                request_doc = {
+                    'id': doc['id'],
+                    'title': doc['title'],
+                    'content': doc['content'],
+                    'contentType': doc.get('contentType', 'PLAIN_TEXT')
+                }
+                
+                # Add attributes if present
+                if 'attributes' in doc and doc['attributes']:
+                    request_doc['attributes'] = doc['attributes']
+                
+                request_docs.append(request_doc)
             
+            # Execute the batch request
+            response = self.client.batch_put_document(
+                applicationId=self.config.application_id,
+                indexId=self.config.index_id,
+                documents=request_docs
+            )
+            
+            # Process response
+            failed_docs = response.get('failedDocuments', [])
+            processed_count = len(updated_documents) - len(failed_docs)
+            
+            # Log failures
+            for failed_doc in failed_docs:
+                logger.error(f"Failed to upload document {failed_doc.get('id', 'unknown')}: "
+                           f"{failed_doc.get('errorCode', 'Unknown')} - {failed_doc.get('errorMessage', 'Unknown error')}")
+            
+            return {
+                'success': True,
+                'processed': processed_count,
+                'failed': len(failed_docs),
+                'failed_documents': failed_docs,
+                'message': f"Uploaded {processed_count} documents, {len(failed_docs)} failed"
+            }
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            error_message = e.response['Error']['Message']
+            logger.error(f"AWS error during batch upload: {error_code} - {error_message}")
+            
+            return {
+                'success': False,
+                'error_code': error_code,
+                'error_message': error_message,
+                'message': f"Batch upload failed: {error_code} - {error_message}"
+            }
         except Exception as e:
             logger.error(f"Error updating documents for custom connector: {e}")
             return {
