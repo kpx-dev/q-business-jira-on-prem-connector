@@ -64,83 +64,7 @@ def cmd_doctor(args, connector: JiraQBusinessConnector):
         return 1
 
 
-def cmd_projects(args, connector: JiraQBusinessConnector):
-    """List projects command"""
-    print("Retrieving Jira projects...")
-    
-    result = connector.get_projects_info()
-    
-    if result['success']:
-        print(f"\n📋 Found {result['count']} projects:")
-        print("-" * 80)
-        
-        for project in result['projects']:
-            lead = project.get('lead', 'N/A')
-            print(f"  {project['key']:10} | {project['name']:30} | Lead: {lead}")
-        
-        return 0
-    else:
-        print(f"❌ Failed to retrieve projects: {result['message']}")
-        return 1
 
-
-def cmd_sync(args, connector: JiraQBusinessConnector):
-    """Sync issues command"""
-    dry_run = args.dry_run
-    
-    if dry_run:
-        print("🔍 Starting dry run sync (no documents will be uploaded)...")
-    else:
-        print("🚀 Starting sync of Jira issues to Q Business...")
-    
-    result = connector.sync_issues(dry_run=dry_run)
-    
-    if result['success']:
-        print(f"✅ {result['message']}")
-        
-        # Print detailed stats
-        stats = result['stats']
-        print("\n📊 Sync Statistics:")
-        print(f"  Total Issues:      {stats['total_issues']}")
-        print(f"  Processed Issues:  {stats['processed_issues']}")
-        print(f"  Uploaded Docs:     {stats['uploaded_documents']}")
-        
-        if stats['failed_documents'] > 0:
-            print(f"  Failed Docs:       {stats['failed_documents']}")
-        
-        if stats['errors']:
-            print(f"  Errors:           {len(stats['errors'])}")
-            print("\n❌ Errors:")
-            for error in stats['errors']:
-                print(f"    - {error}")
-        
-        # Print configuration used
-        config_info = result['config']
-        print(f"\n⚙️  Configuration:")
-        print(f"  Sync Mode:         {config_info['sync_mode']}")
-        print(f"  Batch Size:        {config_info['batch_size']}")
-        print(f"  Include Comments:  {config_info['include_comments']}")
-        print(f"  Include History:   {config_info['include_history']}")
-        
-        if config_info['projects']:
-            print(f"  Projects:          {', '.join(config_info['projects'])}")
-        
-        if config_info['issue_types']:
-            print(f"  Issue Types:       {', '.join(config_info['issue_types'])}")
-        
-        if config_info['jql_filter']:
-            print(f"  JQL Filter:        {config_info['jql_filter']}")
-        
-        return 0
-    else:
-        print(f"❌ {result['message']}")
-        
-        if result['stats']['errors']:
-            print("\n❌ Errors:")
-            for error in result['stats']['errors']:
-                print(f"    - {error}")
-        
-        return 1
 
 
 def cmd_status(args, connector: JiraQBusinessConnector):
@@ -254,21 +178,7 @@ def cmd_status(args, connector: JiraQBusinessConnector):
             return 1
 
 
-def cmd_start_sync(args, connector: JiraQBusinessConnector):
-    """Start Q Business sync job command"""
-    print("Starting Q Business data source sync job...")
-    
-    result = connector.start_qbusiness_sync()
-    
-    if result['success']:
-        print(f"✅ {result['message']}")
-        print(f"   Execution ID: {result['execution_id']}")
-        print("\n💡 Use the 'status' command to check progress:")
-        print(f"   python main.py status --execution-id {result['execution_id']}")
-        return 0
-    else:
-        print(f"❌ {result['message']}")
-        return 1
+
 
 
 def cmd_full_sync(args, connector: JiraQBusinessConnector):
@@ -478,23 +388,14 @@ Examples:
   # Test connections
   python main.py doctor
   
-  # List Jira projects  
-  python main.py projects
-  
-  # Dry run sync (preview only)
-  python main.py sync-jira-to-q --dry-run
-  
-  # Full sync (upload only)
-  python main.py sync-jira-to-q
-  
   # Complete sync workflow (recommended)
   python main.py sync
   
   # Clean sync (delete duplicates, then upload)
   python main.py sync --clean
   
-  # Start Q Business sync job
-  python main.py sync-q-index
+  # Dry run sync (preview only)
+  python main.py sync --dry-run
   
   # Check recent sync jobs
   python main.py status
@@ -538,26 +439,12 @@ Environment Variables:
     # Doctor command
     doctor_parser = subparsers.add_parser('doctor', help='Test connections to Jira and Q Business')
     
-    # Projects command
-    projects_parser = subparsers.add_parser('projects', help='List available Jira projects')
-    
-    # Sync Jira to Q command
-    sync_parser = subparsers.add_parser('sync-jira-to-q', help='Sync Jira issues to Q Business')
-    sync_parser.add_argument(
-        '--dry-run', 
-        action='store_true',
-        help='Preview sync without uploading documents'
-    )
-    
     # Status command
     status_parser = subparsers.add_parser('status', help='Check Q Business sync job status')
     status_parser.add_argument(
         '--execution-id',
         help='Sync job execution ID (optional - shows recent jobs if omitted)'
     )
-    
-    # Sync Q index command
-    sync_q_parser = subparsers.add_parser('sync-q-index', help='Start Q Business data source sync job')
     
     # Full sync command (new)
     full_sync_parser = subparsers.add_parser('sync', help='Complete sync: Jira to Q Business with proper sync job lifecycle')
@@ -594,10 +481,7 @@ Environment Variables:
         # Execute command
         command_functions = {
             'doctor': cmd_doctor,
-            'projects': cmd_projects,
-            'sync-jira-to-q': cmd_sync,
             'status': cmd_status,
-            'sync-q-index': cmd_start_sync,
             'sync': cmd_full_sync
         }
         
