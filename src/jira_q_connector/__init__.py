@@ -10,8 +10,10 @@ __author__ = "Jira Q Business Connector Team"
 
 from .config import ConnectorConfig
 from .jira_connector import JiraQBusinessConnector
+from .cache_client import CacheClient
 
 __all__ = [
     "ConnectorConfig",
     "JiraQBusinessConnector",
+    "CacheClient",
 ] 

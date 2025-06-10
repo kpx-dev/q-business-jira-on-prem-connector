@@ -125,11 +125,22 @@ def cmd_full_sync(args, connector):
     """Complete sync workflow: Start job → Sync documents → Stop job"""
     dry_run = args.dry_run
     clean_sync = args.clean
+    enable_cache = getattr(args, 'cache', False)
+    
+    # Update connector config if cache flag is used
+    if enable_cache:
+        connector.config.enable_cache = True
+        # Re-initialize cache client if needed
+        if not connector.cache_client:
+            from .cache_client import CacheClient
+            connector.cache_client = CacheClient(connector.config.aws)
+    
+    cache_status = "enabled" if (enable_cache or connector.config.enable_cache) else "disabled"
     
     if dry_run:
-        print("🔍 Starting dry run of complete sync workflow (no documents will be uploaded)...")
+        print(f"🔍 Starting dry run of complete sync workflow (no documents will be uploaded, cache: {cache_status})...")
     else:
-        print("🚀 Starting complete sync workflow: Jira → Q Business")
+        print(f"🚀 Starting complete sync workflow: Jira → Q Business (cache: {cache_status})")
     
     try:
         # Step 1: Start Q Business sync job
@@ -182,6 +193,9 @@ def cmd_full_sync(args, connector):
             print(f"   Processed: {sync_result['stats']['processed_issues']} issues")
             print(f"   Uploaded: {sync_result['stats']['uploaded_documents']} documents")
             
+            if sync_result['stats'].get('cached_documents', 0) > 0:
+                print(f"   Cached: {sync_result['stats']['cached_documents']} unchanged documents")
+            
             if sync_result['stats'].get('deleted_documents', 0) > 0:
                 print(f"   Deleted: {sync_result['stats']['deleted_documents']} old documents")
         
@@ -232,6 +246,38 @@ def cmd_full_sync(args, connector):
         return 1
 
 
+def cmd_cache(args, connector):
+    """Cache management commands"""
+    action = args.action
+    
+    if action == 'stats':
+        print("📊 Cache Statistics:")
+        result = connector.get_cache_stats()
+        
+        if result['success']:
+            print(f"   Table: {result['table_name']}")
+            print(f"   Entries: {result['item_count']} documents")
+        else:
+            print(f"   {result['message']}")
+        
+        return 0 if result['success'] else 1
+        
+    elif action == 'clear':
+        print("🧹 Clearing cache...")
+        result = connector.clear_cache()
+        
+        if result['success']:
+            print(f"✅ Cleared {result.get('deleted', 0)} cache entries")
+        else:
+            print(f"❌ Failed to clear cache: {result['message']}")
+        
+        return 0 if result['success'] else 1
+    
+    else:
+        print(f"❌ Unknown cache action: {action}")
+        return 1
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -248,6 +294,9 @@ Examples:
   # Clean sync (delete duplicates, then upload)
   jira-q-connector sync --clean
   
+  # Cached sync (skip unchanged documents)
+  jira-q-connector sync --cache
+  
   # Dry run sync (preview only)
   jira-q-connector sync --dry-run
   
@@ -256,6 +305,10 @@ Examples:
   
   # Check specific sync job status
   jira-q-connector status --execution-id <id>
+  
+  # Cache management
+  jira-q-connector cache stats
+  jira-q-connector cache clear
 
 Environment Variables:
   JIRA_SERVER_URL     - Jira server URL (required)
@@ -272,6 +325,8 @@ Environment Variables:
   PROJECTS            - Comma-separated project keys to sync
   ISSUE_TYPES         - Comma-separated issue types to sync
   JQL_FILTER          - Custom JQL filter
+  ENABLE_CACHE        - Enable DynamoDB caching (default: false)
+  CACHE_TABLE_NAME    - DynamoDB table name for caching (required if caching enabled)
         """
     )
     
@@ -307,6 +362,19 @@ Environment Variables:
         action='store_true',
         help='Delete all existing documents before syncing (full refresh)'
     )
+    full_sync_parser.add_argument(
+        '--cache',
+        action='store_true',
+        help='Enable DynamoDB caching to skip unchanged documents'
+    )
+    
+    # Cache management command
+    cache_parser = subparsers.add_parser('cache', help='Manage DynamoDB cache')
+    cache_parser.add_argument(
+        'action',
+        choices=['stats', 'clear'],
+        help='Cache action: stats (show statistics) or clear (clear all entries)'
+    )
     
     args = parser.parse_args()
     
@@ -332,7 +400,8 @@ Environment Variables:
         command_functions = {
             'doctor': cmd_doctor,
             'status': cmd_status,
-            'sync': cmd_full_sync
+            'sync': cmd_full_sync,
+            'cache': cmd_cache
         }
         
         exit_code = command_functions[args.command](args, connector)

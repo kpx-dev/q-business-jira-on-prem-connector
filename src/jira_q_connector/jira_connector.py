@@ -10,6 +10,7 @@ from .config import ConnectorConfig
 from .jira_client import JiraClient
 from .document_processor import JiraDocumentProcessor
 from .qbusiness_client import QBusinessClient
+from .cache_client import CacheClient
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,18 @@ class JiraQBusinessConnector:
             include_history=config.include_history
         )
         
+        # Initialize cache client if enabled
+        self.cache_client = None
+        if config.enable_cache:
+            self.cache_client = CacheClient(config.aws)
+        
         # Sync state
         self.sync_stats = {
             'total_issues': 0,
             'processed_issues': 0,
             'uploaded_documents': 0,
             'failed_documents': 0,
+            'cached_documents': 0,  # Number of documents skipped due to cache
             'start_time': None,
             'end_time': None,
             'errors': []
@@ -168,13 +175,34 @@ class JiraQBusinessConnector:
         """Clean all documents from this data source"""
         return self.qbusiness_client.delete_all_data_source_documents(execution_id)
     
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics"""
+        if not self.cache_client or not self.cache_client.is_enabled():
+            return {'success': False, 'message': 'Cache not enabled'}
+        
+        return self.cache_client.get_cache_stats()
+    
+    def clear_cache(self) -> Dict[str, Any]:
+        """Clear the document cache"""
+        if not self.cache_client or not self.cache_client.is_enabled():
+            return {'success': False, 'message': 'Cache not enabled'}
+        
+        return self.cache_client.clear_cache()
+    
     def sync_issues_with_execution_id(self, execution_id: str, dry_run: bool = False, clean_first: bool = False) -> Dict[str, Any]:
         """Sync Jira issues to Q Business with execution ID (for proper custom connector workflow)"""
-        logger.info(f"Starting sync of Jira issues to Q Business with execution ID: {execution_id}")
+        cache_enabled = self.cache_client and self.cache_client.is_enabled()
+        logger.info(f"Starting sync of Jira issues to Q Business with execution ID: {execution_id} (cache: {'enabled' if cache_enabled else 'disabled'})")
         
         self.sync_stats['start_time'] = datetime.now()
         
         try:
+            # Ensure cache table exists if caching is enabled
+            if cache_enabled:
+                cache_setup = self.cache_client.ensure_table_exists()
+                if not cache_setup['success']:
+                    logger.warning(f"Cache setup failed: {cache_setup['message']}")
+                    cache_enabled = False
             # Build JQL query
             jql_query = self.build_jql_query()
             
@@ -226,8 +254,30 @@ class JiraQBusinessConnector:
                 logger.info(f"Processing batch {batch_count} ({batch_size} issues)")
                 
                 try:
+                    # Filter issues based on cache if enabled
+                    issues_to_sync = batch_issues
+                    if cache_enabled:
+                        # Check which issues actually need syncing
+                        issues_to_sync = []
+                        for issue in batch_issues:
+                            document_id = f"jira-issue-{issue.get('key', '')}"
+                            if self.cache_client.should_sync_document(document_id, issue):
+                                issues_to_sync.append(issue)
+                        
+                        cached_count = len(batch_issues) - len(issues_to_sync)
+                        self.sync_stats['cached_documents'] += cached_count
+                        
+                        if cached_count > 0:
+                            logger.info(f"Cache filtered: {cached_count} unchanged documents skipped, {len(issues_to_sync)} to sync")
+                    
+                    if not issues_to_sync:
+                        logger.info(f"Batch {batch_count}: All documents up-to-date (skipped)")
+                        processed_count += batch_size
+                        self.sync_stats['processed_issues'] = processed_count
+                        continue
+                    
                     # Convert issues to documents with execution ID
-                    documents = self.document_processor.create_batch_documents(batch_issues, execution_id)
+                    documents = self.document_processor.create_batch_documents(issues_to_sync, execution_id)
                     
                     if not documents:
                         logger.warning(f"No valid documents created from batch {batch_count}")
@@ -243,6 +293,22 @@ class JiraQBusinessConnector:
                         if upload_result['success']:
                             self.sync_stats['uploaded_documents'] += upload_result['processed']
                             self.sync_stats['failed_documents'] += upload_result['failed']
+                            
+                            # Update cache for successfully uploaded documents
+                            if cache_enabled and upload_result['processed'] > 0:
+                                cache_updates = []
+                                for i, issue in enumerate(issues_to_sync):
+                                    # Only update cache for successfully processed documents
+                                    if i < upload_result['processed']:
+                                        document_id = f"jira-issue-{issue.get('key', '')}"
+                                        cache_updates.append({
+                                            'document_id': document_id,
+                                            'issue_data': issue,
+                                            'sync_status': 'success'
+                                        })
+                                
+                                if cache_updates:
+                                    self.cache_client.batch_update_cache(cache_updates)
                             
                             if upload_result['failed'] > 0:
                                 logger.warning(f"Batch {batch_count}: {upload_result['failed']} documents failed to upload")
@@ -274,6 +340,9 @@ class JiraQBusinessConnector:
             message = (f"Sync with execution ID completed in {duration:.1f}s. "
                       f"Processed: {self.sync_stats['processed_issues']}/{self.sync_stats['total_issues']} issues, "
                       f"Uploaded: {self.sync_stats['uploaded_documents']} documents")
+            
+            if self.sync_stats.get('cached_documents', 0) > 0:
+                message += f", Cached: {self.sync_stats['cached_documents']} unchanged documents"
             
             if self.sync_stats.get('deleted_documents', 0) > 0:
                 message += f", Deleted: {self.sync_stats['deleted_documents']} old documents"

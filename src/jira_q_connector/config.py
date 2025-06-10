@@ -26,6 +26,9 @@ class AWSConfig(BaseModel):
     data_source_id: str = Field(..., description="Q Business data source ID")
     index_id: str = Field(..., description="Q Business index ID")
     role_arn: Optional[str] = Field(default=None, description="IAM role ARN for cross-account access")
+    
+    # DynamoDB caching
+    cache_table_name: Optional[str] = Field(default=None, description="DynamoDB table name for caching")
 
 
 class ConnectorConfig(BaseModel):
@@ -46,6 +49,9 @@ class ConnectorConfig(BaseModel):
     projects: Optional[list[str]] = Field(default=None, description="List of project keys to sync")
     issue_types: Optional[list[str]] = Field(default=None, description="List of issue types to sync")
     
+    # Caching
+    enable_cache: bool = Field(default=False, description="Enable DynamoDB caching")
+    
     @classmethod
     def from_env(cls) -> "ConnectorConfig":
         """Create configuration from environment variables"""
@@ -62,7 +68,8 @@ class ConnectorConfig(BaseModel):
             application_id=os.getenv("Q_APPLICATION_ID", ""),
             data_source_id=os.getenv("Q_DATA_SOURCE_ID", ""),
             index_id=os.getenv("Q_INDEX_ID", ""),
-            role_arn=os.getenv("AWS_ROLE_ARN")
+            role_arn=os.getenv("AWS_ROLE_ARN"),
+            cache_table_name=os.getenv("CACHE_TABLE_NAME")
         )
         
         return cls(
@@ -74,5 +81,6 @@ class ConnectorConfig(BaseModel):
             include_history=os.getenv("INCLUDE_HISTORY", "false").lower() == "true",
             jql_filter=os.getenv("JQL_FILTER"),
             projects=os.getenv("PROJECTS", "").split(",") if os.getenv("PROJECTS") else None,
-            issue_types=os.getenv("ISSUE_TYPES", "").split(",") if os.getenv("ISSUE_TYPES") else None
+            issue_types=os.getenv("ISSUE_TYPES", "").split(",") if os.getenv("ISSUE_TYPES") else None,
+            enable_cache=os.getenv("ENABLE_CACHE", "false").lower() == "true"
         ) 

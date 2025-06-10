@@ -148,6 +148,10 @@ INCLUDE_HISTORY=false
 PROJECTS=PROJECT1,PROJECT2
 ISSUE_TYPES=Bug,Task,Story
 JQL_FILTER=status != "Closed" AND updated >= -7d
+
+# Caching (Optional)
+ENABLE_CACHE=true
+CACHE_TABLE_NAME=jira-q-connector-cache
 ```
 
 ### Configuration Details
@@ -171,6 +175,8 @@ JQL_FILTER=status != "Closed" AND updated >= -7d
 - `PROJECTS`: Comma-separated project keys to sync
 - `ISSUE_TYPES`: Comma-separated issue types to sync
 - `JQL_FILTER`: Custom JQL filter for issue selection
+- `ENABLE_CACHE`: Enable DynamoDB caching (default: false)
+- `CACHE_TABLE_NAME`: DynamoDB table name for caching
 
 ## 🎯 Usage
 
@@ -189,8 +195,15 @@ jira-q-connector sync
 # Clean sync (delete duplicates first)
 jira-q-connector sync --clean
 
+# Cached sync (skip unchanged documents)
+jira-q-connector sync --cache
+
 # Check sync job status
 jira-q-connector status
+
+# Cache management
+jira-q-connector cache stats
+jira-q-connector cache clear
 
 # Alternative: Run as a module
 python -m jira_q_connector doctor
@@ -225,6 +238,78 @@ connector.stop_qbusiness_sync(execution_id)
 # Cleanup
 connector.cleanup()
 ```
+
+## 🗄️ DynamoDB Caching
+
+The connector supports optional DynamoDB caching to avoid re-syncing unchanged documents, significantly improving sync performance for large Jira instances.
+
+### How It Works
+
+1. **Content Hashing**: Each document's content is hashed using key fields (summary, description, status, etc.)
+2. **Change Detection**: Before syncing, the connector compares current content hash with cached hash
+3. **Skip Unchanged**: Documents with matching hashes are skipped
+4. **Cache Updates**: Successfully synced documents update the cache with new hash and timestamp
+
+### Setup
+
+1. **Enable Caching**:
+   ```bash
+   # Environment variable
+   ENABLE_CACHE=true
+   CACHE_TABLE_NAME=jira-q-connector-cache
+   
+   # Or use CLI flag
+   jira-q-connector sync --cache
+   ```
+
+2. **DynamoDB Permissions**: Add to your IAM policy:
+   ```json
+   {
+       "Effect": "Allow",
+       "Action": [
+           "dynamodb:CreateTable",
+           "dynamodb:PutItem",
+           "dynamodb:GetItem",
+           "dynamodb:BatchWriteItem",
+           "dynamodb:Scan",
+           "dynamodb:DescribeTable"
+       ],
+       "Resource": "arn:aws:dynamodb:*:*:table/jira-q-connector-cache"
+   }
+   ```
+
+3. **Table Creation**: The table is created automatically on first use with:
+   - **Primary Key**: `document_id` (String)
+   - **Billing Mode**: Pay-per-request
+   - **TTL**: 30 days (automatic cleanup)
+
+### Cache Management
+
+```bash
+# View cache statistics
+jira-q-connector cache stats
+
+# Clear all cache entries
+jira-q-connector cache clear
+```
+
+### Benefits
+
+- **Performance**: Skip unchanged documents (can reduce sync time by 70-90%)
+- **Cost Efficiency**: Fewer API calls to both Jira and Q Business
+- **Bandwidth**: Reduced data transfer
+- **Reliability**: Less load on Jira server
+
+### Cache Data Structure
+
+Each cache entry contains:
+- `document_id`: Unique document identifier
+- `content_hash`: SHA256 hash of document content
+- `last_sync`: Timestamp of last successful sync
+- `sync_status`: Success/failure status
+- `jira_key`: Original Jira issue key
+- `jira_updated`: Jira's last updated timestamp
+- `ttl`: Automatic expiration (30 days)
 
 ## 🔧 Amazon Q Business Setup
 
@@ -269,6 +354,18 @@ Using AWS Console:
                 "arn:aws:qbusiness:*:*:application/*/index/*",
                 "arn:aws:qbusiness:*:*:application/*/index/*/data-source/*"
             ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:CreateTable",
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:Scan",
+                "dynamodb:DescribeTable"
+            ],
+            "Resource": "arn:aws:dynamodb:*:*:table/jira-q-connector-cache"
         }
     ]
 }
