@@ -18,7 +18,7 @@ class JiraDocumentProcessor:
         self.include_comments = include_comments
         self.include_history = include_history
     
-    def process_issue(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+    def process_issue(self, issue: Dict[str, Any], execution_id: str = None) -> Dict[str, Any]:
         """Convert a Jira issue to Q Business document format"""
         try:
             fields = issue.get('fields', {})
@@ -57,7 +57,7 @@ class JiraDocumentProcessor:
             content = '\n\n'.join(content_parts)
             
             # Create document attributes
-            attributes = self._create_document_attributes(issue, fields)
+            attributes = self._create_document_attributes(issue, fields, execution_id)
             
             # Generate document URI
             base_url = self._extract_base_url_from_self_link(issue.get('self', ''))
@@ -256,7 +256,7 @@ class JiraDocumentProcessor:
         
         return '\n'.join(history_parts)
     
-    def _create_document_attributes(self, issue: Dict[str, Any], fields: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _create_document_attributes(self, issue: Dict[str, Any], fields: Dict[str, Any], execution_id: str = None) -> List[Dict[str, Any]]:
         """Create document attributes for Q Business"""
         attributes = []
         
@@ -270,6 +270,24 @@ class JiraDocumentProcessor:
                 'stringValue': doc_uri
             }
         })
+        
+        # Required attributes for custom connector (per AWS documentation)
+        if execution_id:
+            # Add _data_source_id (required for custom connectors)
+            attributes.append({
+                'name': '_data_source_id',
+                'value': {
+                    'stringValue': 'custom-jira-connector'  # This will be updated by the connector
+                }
+            })
+            
+            # Add _data_source_sync_job_execution_id (required for custom connectors)
+            attributes.append({
+                'name': '_data_source_sync_job_execution_id',
+                'value': {
+                    'stringValue': execution_id
+                }
+            })
         
         # Issue key
         if issue.get('key'):
@@ -403,13 +421,13 @@ class JiraDocumentProcessor:
             logger.warning(f"Could not parse date '{date_str}': {e}")
             return datetime.now()
     
-    def create_batch_documents(self, issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def create_batch_documents(self, issues: List[Dict[str, Any]], execution_id: str = None) -> List[Dict[str, Any]]:
         """Process multiple issues into Q Business documents"""
         documents = []
         
         for issue in issues:
             try:
-                doc = self.process_issue(issue)
+                doc = self.process_issue(issue, execution_id)
                 if doc:
                     documents.append(doc)
             except Exception as e:

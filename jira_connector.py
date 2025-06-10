@@ -283,6 +283,139 @@ class JiraQBusinessConnector:
         """Start a Q Business data source sync job"""
         return self.qbusiness_client.start_data_source_sync()
     
+    def stop_qbusiness_sync(self, execution_id: str) -> Dict[str, Any]:
+        """Stop Q Business data source sync job"""
+        return self.qbusiness_client.stop_data_source_sync(execution_id)
+    
+    def clean_all_documents(self, execution_id: str) -> Dict[str, Any]:
+        """Clean all documents from this data source"""
+        return self.qbusiness_client.delete_all_data_source_documents(execution_id)
+    
+    def sync_issues_with_execution_id(self, execution_id: str, dry_run: bool = False, clean_first: bool = False) -> Dict[str, Any]:
+        """Sync Jira issues to Q Business with execution ID (for proper custom connector workflow)"""
+        logger.info(f"Starting sync of Jira issues to Q Business with execution ID: {execution_id}")
+        
+        self.sync_stats['start_time'] = datetime.now()
+        
+        try:
+            # Build JQL query
+            jql_query = self.build_jql_query()
+            
+            # Get total count first
+            logger.info("Getting total issue count...")
+            initial_result = self.jira_client.search_issues(jql=jql_query, max_results=1)
+            total_issues = initial_result.get('total', 0)
+            
+            if total_issues == 0:
+                logger.info("No issues found matching criteria")
+                return self._build_sync_result(success=True, message="No issues to sync")
+            
+            logger.info(f"Found {total_issues} issues to sync")
+            self.sync_stats['total_issues'] = total_issues
+            
+            # If clean_first is requested, collect all document IDs first and delete them
+            if clean_first and not dry_run:
+                logger.info("Collecting document IDs for deletion...")
+                all_document_ids = []
+                
+                # Get all issues to determine document IDs
+                for batch_issues in self._get_issues_in_batches(jql_query):
+                    for issue in batch_issues:
+                        key = issue.get('key', '')
+                        if key:
+                            doc_id = f"jira-issue-{key}"
+                            all_document_ids.append(doc_id)
+                
+                if all_document_ids:
+                    logger.info(f"Deleting {len(all_document_ids)} existing documents...")
+                    delete_result = self.qbusiness_client.batch_delete_documents(all_document_ids)
+                    
+                    if delete_result['success']:
+                        deleted_count = delete_result.get('deleted', 0)
+                        logger.info(f"Successfully deleted {deleted_count} existing documents")
+                        self.sync_stats['deleted_documents'] = deleted_count
+                    else:
+                        logger.warning(f"Failed to delete some documents: {delete_result['message']}")
+            elif clean_first and dry_run:
+                logger.info("DRY RUN: Would delete all existing documents before upload")
+                        
+            # Process issues in batches
+            processed_count = 0
+            batch_count = 0
+            
+            for batch_issues in self._get_issues_in_batches(jql_query):
+                batch_count += 1
+                batch_size = len(batch_issues)
+                logger.info(f"Processing batch {batch_count} ({batch_size} issues)")
+                
+                try:
+                    # Convert issues to documents with execution ID
+                    documents = self.document_processor.create_batch_documents(batch_issues, execution_id)
+                    
+                    if not documents:
+                        logger.warning(f"No valid documents created from batch {batch_count}")
+                        continue
+                    
+                    if dry_run:
+                        logger.info(f"DRY RUN: Would upload {len(documents)} documents with execution ID {execution_id}")
+                        self.sync_stats['uploaded_documents'] += len(documents)
+                    else:
+                        # Upload to Q Business with execution ID
+                        upload_result = self.qbusiness_client.batch_put_documents_with_execution_id(documents, execution_id)
+                        
+                        if upload_result['success']:
+                            self.sync_stats['uploaded_documents'] += upload_result['processed']
+                            self.sync_stats['failed_documents'] += upload_result['failed']
+                            
+                            if upload_result['failed'] > 0:
+                                logger.warning(f"Batch {batch_count}: {upload_result['failed']} documents failed to upload")
+                        else:
+                            logger.error(f"Batch {batch_count} upload failed: {upload_result['message']}")
+                            self.sync_stats['errors'].append(f"Batch {batch_count}: {upload_result['message']}")
+                    
+                    processed_count += batch_size
+                    self.sync_stats['processed_issues'] = processed_count
+                    
+                    # Progress logging
+                    progress = (processed_count / total_issues) * 100
+                    logger.info(f"Progress: {processed_count}/{total_issues} ({progress:.1f}%)")
+                    
+                    # Rate limiting - be nice to Jira server
+                    time.sleep(0.5)
+                    
+                except Exception as e:
+                    logger.error(f"Error processing batch {batch_count}: {e}")
+                    self.sync_stats['errors'].append(f"Batch {batch_count}: {str(e)}")
+                    continue
+            
+            self.sync_stats['end_time'] = datetime.now()
+            
+            # Build result
+            success = len(self.sync_stats['errors']) == 0
+            duration = (self.sync_stats['end_time'] - self.sync_stats['start_time']).total_seconds()
+            
+            message = (f"Sync with execution ID completed in {duration:.1f}s. "
+                      f"Processed: {self.sync_stats['processed_issues']}/{self.sync_stats['total_issues']} issues, "
+                      f"Uploaded: {self.sync_stats['uploaded_documents']} documents")
+            
+            if self.sync_stats.get('deleted_documents', 0) > 0:
+                message += f", Deleted: {self.sync_stats['deleted_documents']} old documents"
+            
+            if self.sync_stats['failed_documents'] > 0:
+                message += f", Failed: {self.sync_stats['failed_documents']} documents"
+            
+            if self.sync_stats['errors']:
+                message += f", Errors: {len(self.sync_stats['errors'])}"
+            
+            logger.info(message)
+            return self._build_sync_result(success=success, message=message)
+            
+        except Exception as e:
+            logger.error(f"Sync with execution ID failed: {e}")
+            self.sync_stats['end_time'] = datetime.now()
+            self.sync_stats['errors'].append(str(e))
+            return self._build_sync_result(success=False, message=f"Sync failed: {e}")
+    
     def cleanup(self):
         """Cleanup resources"""
         if hasattr(self, 'jira_client'):
