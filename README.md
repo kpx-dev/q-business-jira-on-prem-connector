@@ -2,6 +2,48 @@
 
 A comprehensive Python-based custom connector that synchronizes Jira on-premises server (version 9.12.17) with Amazon Q Business using the BatchPutDocument API.
 
+## 📊 Data Flow Architecture
+
+```mermaid
+graph TB
+    A["🏢 Jira On-Premises<br/>Server (v9.12.17)"] --> B["🔍 Custom Connector<br/>(main.py sync)"]
+    B --> C["📄 Document Processing<br/>(Issues + Comments + History)"]
+    C --> D["☁️ Amazon Q Business"]
+    
+    subgraph "Sync Workflow"
+        B1["1. Start Sync Job"] --> B2["2. Extract Issues<br/>(REST API v2)"]
+        B2 --> B3["3. Transform Documents<br/>(BatchPutDocument format)"]
+        B3 --> B4["4. Upload to Q Business<br/>(Batches of 10)"]
+        B4 --> B5["5. Stop Sync Job"]
+    end
+    
+    subgraph "Q Business Components"
+        D1["Application"] --> D2["Index"]
+        D2 --> D3["Custom Data Source"]
+        D3 --> D4["Searchable Documents"]
+    end
+    
+    B -.-> B1
+    D -.-> D1
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#fff3e0
+    style D fill:#e8f5e8
+    style B1 fill:#fce4ec
+    style B2 fill:#fce4ec
+    style B3 fill:#fce4ec
+    style B4 fill:#fce4ec
+    style B5 fill:#fce4ec
+```
+
+**Data Flow Steps:**
+1. **🔍 Extract**: Connector pulls issues from Jira using REST API v2
+2. **🔄 Transform**: Issues are converted to Q Business document format with metadata
+3. **📤 Load**: Documents are uploaded to Q Business in batches of 10
+4. **🔄 Sync Management**: Proper sync job lifecycle ensures data integrity
+5. **🔍 Search**: Documents become searchable in Q Business application
+
 ## 🚀 Features
 
 - **✅ Jira Server 9.12.17 Compatibility**: Uses Jira REST API v2 for maximum compatibility
