@@ -165,13 +165,15 @@ CACHE_TABLE_NAME=jira-q-connector-cache
 
 ## 🎯 Usage
 
+The connector provides a command-line interface (CLI) as the primary way to interact with the system. The CLI is installed as `jira-q-connector` and can also be run as a Python module.
+
 ### Command Line Interface
 
 ```bash
-# Test connections
+# Test connections and configuration
 jira-q-connector doctor
 
-# Preview sync (dry run)
+# Preview sync (dry run - shows what would be synced)
 jira-q-connector sync --dry-run
 
 # Perform full sync
@@ -192,24 +194,28 @@ jira-q-connector cache clear
 
 # Alternative: Run as a module
 python -m jira_q_connector doctor
+python -m jira_q_connector sync
+python -m jira_q_connector status
 ```
 
-### Python API
+### Python API (Advanced Usage)
+
+For advanced use cases or custom integrations, you can use the Python API directly:
 
 ```python
 from jira_q_connector import ConnectorConfig, JiraQBusinessConnector
 
-# Load configuration
+# Load configuration from environment
 config = ConnectorConfig.from_env()
 
-# Create connector
+# Create connector instance
 connector = JiraQBusinessConnector(config)
 
 # Test connections
 results = connector.test_connections()
 print(f"Connections: {results['overall_success']}")
 
-# Start sync job and sync issues
+# Perform sync with custom execution ID
 sync_job = connector.start_qbusiness_sync()
 execution_id = sync_job['execution_id']
 
@@ -220,7 +226,7 @@ print(f"Sync completed: {sync_result['success']}")
 # Stop sync job
 connector.stop_qbusiness_sync(execution_id)
 
-# Cleanup
+# Cleanup resources
 connector.cleanup()
 ```
 
@@ -422,7 +428,15 @@ export JIRA_VERIFY_SSL=false
 
 Enable debug logging:
 ```bash
+# Enable debug logging for sync
 jira-q-connector sync --log-level DEBUG
+
+# Or set environment variable
+export LOG_LEVEL=DEBUG
+jira-q-connector sync
+
+# Test connections with debug output
+jira-q-connector doctor --log-level DEBUG
 ```
 
 ## 📈 Performance Tuning
@@ -443,11 +457,14 @@ jira-q-connector sync --log-level DEBUG
 
 ### Cron Example
 ```bash
-# Daily incremental sync at 2 AM
-0 2 * * * /path/to/jira-q-connector sync > /var/log/jira-sync.log 2>&1
+# Daily incremental sync at 2 AM with caching
+0 2 * * * /usr/local/bin/jira-q-connector sync --cache > /var/log/jira-sync.log 2>&1
 
 # Weekly full sync on Sundays at 1 AM
-0 1 * * 0 SYNC_MODE=full /path/to/jira-q-connector sync
+0 1 * * 0 SYNC_MODE=full /usr/local/bin/jira-q-connector sync --clean > /var/log/jira-full-sync.log 2>&1
+
+# Alternative: Using specific path to Python module
+# 0 2 * * * cd /path/to/project && python -m jira_q_connector sync --cache
 ```
 
 ### AWS Lambda
@@ -455,27 +472,97 @@ Deploy as a Lambda function for serverless execution:
 
 ```python
 import json
+import subprocess
+import os
+
+def lambda_handler(event, context):
+    """
+    Lambda function to run Jira Q Business connector sync
+    """
+    try:
+        # Set environment variables if needed
+        # os.environ['JIRA_SERVER_URL'] = 'https://...'
+        
+        # Run the CLI command
+        result = subprocess.run(
+            ['jira-q-connector', 'sync', '--cache'],
+            capture_output=True,
+            text=True,
+            timeout=900  # 15 minutes max
+        )
+        
+        # Check if command was successful
+        if result.returncode == 0:
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'success': True,
+                    'message': 'Sync completed successfully',
+                    'output': result.stdout
+                })
+            }
+        else:
+            return {
+                'statusCode': 500,
+                'body': json.dumps({
+                    'success': False,
+                    'error': result.stderr,
+                    'output': result.stdout
+                })
+            }
+            
+    except subprocess.TimeoutExpired:
+        return {
+            'statusCode': 408,
+            'body': json.dumps({
+                'success': False,
+                'error': 'Sync operation timed out'
+            })
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'success': False,
+                'error': str(e)
+            })
+        }
+```
+
+**Alternative: Using Python API for advanced control:**
+
+```python
+import json
 from jira_q_connector import ConnectorConfig, JiraQBusinessConnector
 
 def lambda_handler(event, context):
-    config = ConnectorConfig.from_env()
-    connector = JiraQBusinessConnector(config)
-    
-    # Start sync job and sync issues
-    sync_job = connector.start_qbusiness_sync()
-    execution_id = sync_job['execution_id']
-    
-    # Sync issues with execution ID
-    result = connector.sync_issues_with_execution_id(execution_id, dry_run=False)
-    
-    # Stop sync job
-    connector.stop_qbusiness_sync(execution_id)
-    connector.cleanup()
-    
-    return {
-        'statusCode': 200,
-        'body': json.dumps(result)
-    }
+    try:
+        config = ConnectorConfig.from_env()
+        connector = JiraQBusinessConnector(config)
+        
+        # Start sync job and sync issues
+        sync_job = connector.start_qbusiness_sync()
+        execution_id = sync_job['execution_id']
+        
+        # Sync issues with execution ID
+        result = connector.sync_issues_with_execution_id(execution_id, dry_run=False)
+        
+        # Stop sync job
+        connector.stop_qbusiness_sync(execution_id)
+        connector.cleanup()
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps(result)
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'success': False,
+                'error': str(e)
+            })
+        }
 ```
 
 ## 📚 API Reference
