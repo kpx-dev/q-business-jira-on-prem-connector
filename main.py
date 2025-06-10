@@ -185,7 +185,7 @@ def cmd_full_sync(args, connector: JiraQBusinessConnector):
     
     try:
         # Step 1: Start the sync job
-        print("\n📋 Step 1: Starting Q Business data source sync job...")
+        print("\n📋 Step 1 of 4: Starting Q Business data source sync job...")
         
         if dry_run:
             print("✅ Dry run: Would start sync job here")
@@ -203,7 +203,7 @@ def cmd_full_sync(args, connector: JiraQBusinessConnector):
         
         # Step 1.5: Clean existing documents if requested
         if clean_sync:
-            print(f"\n🧹 Step 1.5: Cleaning existing documents...")
+            print(f"\n🧹 Step 1.5 of 4: Cleaning existing documents...")
             
             if dry_run:
                 print("✅ Dry run: Would delete all existing documents from data source")
@@ -216,7 +216,7 @@ def cmd_full_sync(args, connector: JiraQBusinessConnector):
                     print("   Continuing with sync...")
         
         # Step 2: Sync Jira documents with the execution ID
-        print(f"\n📄 Step 2: Syncing Jira issues to Q Business...")
+        print(f"\n📄 Step 2 of 4: Syncing Jira issues to Q Business...")
         
         if dry_run:
             # For dry run, just show what would be done
@@ -233,7 +233,7 @@ def cmd_full_sync(args, connector: JiraQBusinessConnector):
             if not sync_result['success']:
                 print(f"❌ Document sync failed: {sync_result['message']}")
                 # Still try to stop the sync job
-                print(f"\n🛑 Step 3: Stopping sync job due to errors...")
+                print(f"\n🛑 Step 3 of 4: Stopping sync job due to errors...")
                 stop_result = connector.stop_qbusiness_sync(execution_id)
                 return 1
             
@@ -245,7 +245,7 @@ def cmd_full_sync(args, connector: JiraQBusinessConnector):
                 print(f"   Deleted: {sync_result['stats']['deleted_documents']} old documents")
         
         # Step 3: Stop the sync job
-        print(f"\n🏁 Step 3: Stopping Q Business sync job...")
+        print(f"\n🏁 Step 3 of 4: Stopping Q Business sync job...")
         
         if not dry_run:
             stop_result = connector.stop_qbusiness_sync(execution_id)
@@ -258,90 +258,14 @@ def cmd_full_sync(args, connector: JiraQBusinessConnector):
         else:
             print("✅ Dry run: Would stop sync job here")
         
-        # Step 4: Wait for completion and get detailed metrics
-        print(f"\n📊 Step 4: Waiting for sync completion and retrieving metrics...")
+        # Step 4: Completion
+        print(f"\n🎯 Step 4 of 4: Sync completed successfully!")
         
         if not dry_run:
-            import time
-            
-            # Wait for the sync job to complete and get detailed metrics
-            max_wait_time = 300  # 5 minutes max wait
-            wait_interval = 10   # Check every 10 seconds
-            elapsed_time = 0
-            
-            print(f"⏳ Waiting for sync job to complete (max {max_wait_time//60} minutes)...")
-            
-            final_status = None
-            metrics_result = None
-            
-            while elapsed_time < max_wait_time:
-                # Check job status
-                status_result = connector.get_sync_job_status(execution_id)
-                
-                if status_result['success']:
-                    job = status_result['sync_job']
-                    status = job.get('status', 'Unknown')
-                    
-                    if status in ['SUCCEEDED', 'FAILED', 'ABORTED']:
-                        final_status = status
-                        print(f"📈 Sync Job Completed: {status}")
-                        
-                        # Wait a bit more for metrics to be populated by AWS
-                        print(f"⏳ Waiting for metrics to be available...")
-                        time.sleep(5)
-                        
-                        # Try to get detailed metrics
-                        metrics_result = connector.qbusiness_client.get_data_source_sync_job_metrics(execution_id)
-                        
-                        if metrics_result['success']:
-                            print(f"📊 AWS Q Business Metrics (First-Time Additions Only):")
-                            print(f"   📄 Documents Added: {metrics_result['documents_added']} (new documents only)")
-                            print(f"   📝 Documents Modified: {metrics_result['documents_modified']}")
-                            print(f"   🗑️  Documents Deleted: {metrics_result['documents_deleted']}")
-                            print(f"   ❌ Documents Failed: {metrics_result['documents_failed']}")
-                            
-                            # Show local sync activity metrics too
-                            print(f"\n📈 Local Sync Activity (This Session):")
-                            print(f"   📄 Documents Processed: {sync_result['stats']['processed_issues']} issues")
-                            print(f"   📤 Documents Uploaded: {sync_result['stats']['uploaded_documents']}")
-                            if sync_result['stats'].get('deleted_documents', 0) > 0:
-                                print(f"   🗑️  Documents Deleted: {sync_result['stats']['deleted_documents']}")
-                            
-                            # Explain the difference if there's a mismatch
-                            aws_added = metrics_result['documents_added']
-                            local_uploaded = sync_result['stats']['uploaded_documents']
-                            if aws_added == 0 and local_uploaded > 0:
-                                print(f"\n💡 Note: AWS shows 0 'Documents Added' because it only counts")
-                                print(f"   documents being indexed for the first time. Re-uploading")
-                                print(f"   existing documents doesn't count as 'added' in AWS metrics.")
-                                
-                        else:
-                            print(f"⚠️  Could not retrieve detailed AWS metrics: {metrics_result['message']}")
-                            # Show local metrics only
-                            print(f"\n📈 Local Sync Activity (This Session):")
-                            print(f"   📄 Documents Processed: {sync_result['stats']['processed_issues']} issues")
-                            print(f"   📤 Documents Uploaded: {sync_result['stats']['uploaded_documents']}")
-                            if sync_result['stats'].get('deleted_documents', 0) > 0:
-                                print(f"   🗑️  Documents Deleted: {sync_result['stats']['deleted_documents']}")
-                        
-                        break
-                    else:
-                        print(f"   Status: {status} (still running...)")
-                else:
-                    print(f"   Could not check status: {status_result['message']}")
-                
-                # Wait before next check
-                time.sleep(wait_interval)
-                elapsed_time += wait_interval
-            
-            if final_status is None:
-                print(f"⚠️  Sync job did not complete within {max_wait_time//60} minutes")
-                print(f"   💡 Check status later with: python main.py status --execution-id {execution_id}")
-            
             print(f"   Execution ID: {execution_id}")
-            
+            print(f"   💡 Check sync status with: python main.py status --execution-id {execution_id}")
         else:
-            print("✅ Dry run completed - no actual sync job was executed")
+            print("   Dry run completed - no actual sync job was executed")
         
         print(f"\n🎉 Complete sync workflow finished successfully!")
         return 0
