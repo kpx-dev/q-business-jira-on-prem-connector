@@ -8,10 +8,14 @@ def read_readme():
     with open("README.md", "r", encoding="utf-8") as fh:
         return fh.read()
 
-# Read requirements
-def read_requirements():
-    with open("requirements.txt", "r", encoding="utf-8") as fh:
-        return [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+# Define requirements directly (instead of reading from file)
+def get_requirements():
+    return [
+        "requests>=2.25.0",
+        "boto3>=1.26.0", 
+        "pydantic>=1.8.0",
+        "python-dotenv>=0.19.0",
+    ]
 
 # Get version from package without importing
 def get_version():
@@ -48,7 +52,7 @@ setup(
         "Topic :: System :: Systems Administration",
     ],
     python_requires=">=3.8",
-    install_requires=read_requirements(),
+    install_requires=get_requirements(),
     entry_points={
         "console_scripts": [
             "jira-q-connector=jira_q_connector.cli:main",
