@@ -310,7 +310,7 @@ Environment Variables:
   Q_INDEX_ID          - Q Business index ID (required)
   AWS_REGION          - AWS region (default: us-east-1)
   SYNC_MODE           - Sync mode: full or incremental (default: full)
-  BATCH_SIZE          - Batch size for processing (default: 100)
+  BATCH_SIZE          - Batch size for processing (default: 10)
   INCLUDE_COMMENTS    - Include issue comments (default: true)
   INCLUDE_HISTORY     - Include change history (default: false)
   PROJECTS            - Comma-separated project keys to sync

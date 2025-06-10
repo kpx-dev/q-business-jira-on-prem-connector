@@ -9,7 +9,7 @@ A comprehensive Python-based custom connector that synchronizes Jira on-premises
 - **📝 Rich Content Extraction**: Extracts issues, comments, change history, and metadata
 - **🏷️ Advanced Filtering**: Filter by projects, issue types, or custom JQL queries
 - **📊 Batch Processing**: Efficient batch upload to Amazon Q Business
-- **🔧 Flexible Configuration**: Environment variables or JSON configuration files
+- **🔧 Simple Configuration**: Environment variables via .env file
 - **📈 Comprehensive Logging**: Detailed logging with configurable levels
 - **✨ CLI Interface**: Easy-to-use command-line interface
 
@@ -62,9 +62,8 @@ Q_INDEX_ID=your-q-index-id
 
 # Sync Configuration
 SYNC_MODE=full  # Options: full, incremental
-BATCH_SIZE=100
+BATCH_SIZE=10   # Max 10 for Q Business BatchPutDocument
 INCLUDE_COMMENTS=true
-INCLUDE_ATTACHMENTS=false
 INCLUDE_HISTORY=false
 
 # Filtering (Optional)
@@ -73,26 +72,27 @@ ISSUE_TYPES=Bug,Task,Story
 JQL_FILTER=status != "Closed" AND updated >= -7d
 ```
 
-### JSON Configuration
+### Configuration Details
 
-Alternatively, use a JSON configuration file:
+**Required Environment Variables:**
+- `JIRA_SERVER_URL`: Your Jira server URL
+- `JIRA_USERNAME`: Jira username or email
+- `JIRA_PASSWORD`: Jira password or API token
+- `Q_APPLICATION_ID`: Q Business application ID
+- `Q_DATA_SOURCE_ID`: Q Business data source ID (must be CUSTOM type)
+- `Q_INDEX_ID`: Q Business index ID
 
-```json
-{
-  "jira": {
-    "server_url": "https://your-jira-server.company.com",
-    "username": "your-username", 
-    "password": "your-password-or-api-token"
-  },
-  "aws": {
-    "application_id": "your-q-application-id",
-    "data_source_id": "your-q-data-source-id",
-    "index_id": "your-q-index-id"
-  },
-  "sync_mode": "full",
-  "include_comments": true
-}
-```
+**Optional Configuration:**
+- `AWS_REGION`: AWS region (default: us-east-1)
+- `JIRA_VERIFY_SSL`: Verify SSL certificates (default: true)
+- `JIRA_TIMEOUT`: Request timeout in seconds (default: 30)
+- `SYNC_MODE`: full or incremental (default: full)
+- `BATCH_SIZE`: Documents per batch, max 10 (default: 10)
+- `INCLUDE_COMMENTS`: Include issue comments (default: true)
+- `INCLUDE_HISTORY`: Include change history (default: false)
+- `PROJECTS`: Comma-separated project keys to sync
+- `ISSUE_TYPES`: Comma-separated issue types to sync
+- `JQL_FILTER`: Custom JQL filter for issue selection
 
 ## 🎯 Usage
 
@@ -269,9 +269,8 @@ python main.py sync --log-level DEBUG
 ## 📈 Performance Tuning
 
 ### Batch Size Optimization
-- **Small installations**: `BATCH_SIZE=50`
-- **Medium installations**: `BATCH_SIZE=100` (default)
-- **Large installations**: `BATCH_SIZE=200`
+- **All installations**: `BATCH_SIZE=10` (AWS Q Business limit)
+- Note: AWS Q Business BatchPutDocument API has a maximum of 10 documents per batch
 
 ### Memory Usage
 - Disable comments for memory-intensive syncs: `INCLUDE_COMMENTS=false`
@@ -304,7 +303,15 @@ def lambda_handler(event, context):
     config = ConnectorConfig.from_env()
     connector = JiraQBusinessConnector(config)
     
-    result = connector.sync_issues()
+    # Start sync job and sync issues
+    sync_job = connector.start_qbusiness_sync()
+    execution_id = sync_job['execution_id']
+    
+    # Sync issues with execution ID
+    result = connector.sync_issues_with_execution_id(execution_id, dry_run=False)
+    
+    # Stop sync job
+    connector.stop_qbusiness_sync(execution_id)
     connector.cleanup()
     
     return {
