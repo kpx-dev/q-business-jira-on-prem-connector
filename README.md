@@ -6,71 +6,62 @@ A comprehensive Python-based custom connector that synchronizes Jira on-premises
 
 ```mermaid
 graph LR
-    A[🏢 Jira Server<br/>v9.12.17] --> B[🔍 Custom Connector<br/>main.py sync]
-    B --> C[☁️ Amazon Q Business]
+    A[🏢 Jira Server] --> B[🔍 Connector] --> C[☁️ Q Business]
     
-    subgraph "Step-by-Step Process"
+    subgraph Process ["🔄 Sync Steps"]
         direction TB
-        S1[1️⃣ Start Sync Job]
-        S2[2️⃣ Extract Issues via REST API]
-        S3[3️⃣ Transform to Documents]
-        S4[4️⃣ Upload in Batches of 10]
-        S5[5️⃣ Stop Sync Job]
+        S1[1️⃣ Start Job]
+        S2[2️⃣ Extract Data]
+        S3[3️⃣ Transform]
+        S4[4️⃣ Upload]
+        S5[5️⃣ Complete]
         
-        S1 --> S2
-        S2 --> S3
-        S3 --> S4
-        S4 --> S5
+        S1 --> S2 --> S3 --> S4 --> S5
     end
     
-    subgraph "Document Content"
+    subgraph Content ["📄 Document Data"]
         direction TB
-        D1[📝 Issue Summary & Description]
-        D2[💬 Comments optional]
-        D3[📊 Metadata & History]
-        D4[🔗 Links & Attributes]
+        D1[📝 Issues]
+        D2[💬 Comments]
+        D3[📊 Metadata]
+        D4[🔗 Links]
     end
     
-    subgraph "Q Business Stack"
+    subgraph QStack ["☁️ Q Business"]
         direction TB
         Q1[📱 Application]
         Q2[📂 Index]
-        Q3[🔌 Custom Data Source]
-        Q4[🔍 Searchable Content]
+        Q3[🔌 Data Source]
+        Q4[🔍 Search Results]
         
-        Q1 --> Q2
-        Q2 --> Q3
-        Q3 --> Q4
+        Q1 --> Q2 --> Q3 --> Q4
     end
     
     B -.-> S1
     S3 -.-> D1
     C -.-> Q1
     
-    style A fill:#e3f2fd
-    style B fill:#f3e5f5
-    style C fill:#e8f5e8
-    style S1 fill:#fff3e0
-    style S2 fill:#fff3e0
-    style S3 fill:#fff3e0
-    style S4 fill:#fff3e0
-    style S5 fill:#fff3e0
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style B fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style C fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
 ```
 
 **How It Works:**
 
-**Main Flow:** Jira Server → Custom Connector → Amazon Q Business
+**🔄 Sync Process (main.py sync):**
+1. **Start Job** - Initialize Q Business data source sync with execution ID
+2. **Extract Data** - Pull Jira issues via REST API v2 using JQL queries
+3. **Transform** - Convert issues to Q Business BatchPutDocument format
+4. **Upload** - Send documents in batches of 10 (AWS API limit)
+5. **Complete** - Stop sync job and finalize the data source update
 
-**Sync Process (5 Steps):**
-1. **Start Sync Job** - Initialize Q Business data source sync
-2. **Extract Issues** - Pull data from Jira via REST API v2
-3. **Transform** - Convert to Q Business document format
-4. **Upload** - Send documents in batches of 10 (API limit)
-5. **Stop Sync Job** - Complete the sync lifecycle
+**📄 Document Content:** Each Jira issue becomes a searchable Q Business document with:
+- Issue summary, description, and key
+- Comments (optional) and change history (optional)  
+- Metadata: status, priority, assignee, reporter, labels
+- Direct links back to original Jira issues
 
-**Document Content:** Each Jira issue becomes a searchable document containing summary, description, comments (optional), metadata, and direct links back to Jira.
-
-**Q Business Stack:** Documents flow through Application → Index → Custom Data Source → Searchable Content for end users.
+**☁️ Q Business Flow:** Documents are indexed in your Q Business Application → Index → Custom Data Source → Available for search by end users
 
 ## 🚀 Features
 
