@@ -88,8 +88,8 @@ def cmd_status(args, connector):
             
             result = connector.qbusiness_client.list_data_source_sync_jobs(max_results=10)
             
-            if result['success'] and 'jobs' in result:
-                jobs = result['jobs']
+            if result['success'] and 'sync_jobs' in result:
+                jobs = result['sync_jobs']
                 
                 if not jobs:
                     print("   No sync jobs found")
@@ -108,7 +108,7 @@ def cmd_status(args, connector):
                         'STOPPED': '⏹️'
                     }.get(status, '❓')
                     
-                    print(f"   {status_emoji} {execution_id[:8]}... | {status} | {start_time}")
+                    print(f"   {status_emoji} {execution_id} | {status} | {start_time}")
                 
                 print(f"\n💡 Check specific job: python -m jira_q_connector status --execution-id <id>")
                 return 0
