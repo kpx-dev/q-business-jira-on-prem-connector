@@ -5,8 +5,7 @@ Main CLI application for Jira Q Business Custom Connector
 import argparse
 import logging
 import sys
-import json
-from pathlib import Path
+
 
 from config import ConnectorConfig
 from jira_connector import JiraQBusinessConnector
@@ -37,17 +36,7 @@ def setup_logging(level: str = "INFO"):
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 
-def load_config_from_file(config_file: str) -> ConnectorConfig:
-    """Load configuration from JSON file"""
-    config_path = Path(config_file)
-    
-    if not config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_file}")
-    
-    with open(config_path, 'r') as f:
-        config_data = json.load(f)
-    
-    return ConnectorConfig(**config_data)
+
 
 
 def cmd_doctor(args, connector: JiraQBusinessConnector):
@@ -421,10 +410,7 @@ Environment Variables:
         """
     )
     
-    parser.add_argument(
-        "--config", "-c",
-        help="Configuration file (JSON format)"
-    )
+
     
     parser.add_argument(
         "--log-level", "-l",
@@ -469,11 +455,8 @@ Environment Variables:
     setup_logging(args.log_level)
     
     try:
-        # Load configuration
-        if args.config:
-            config = load_config_from_file(args.config)
-        else:
-            config = ConnectorConfig.from_env()
+        # Load configuration from environment
+        config = ConnectorConfig.from_env()
         
         # Create connector
         connector = JiraQBusinessConnector(config)
