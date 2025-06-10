@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jira-q-connector"
+dynamic = ["version"]
+description = "A custom connector that synchronizes Jira on-premises server with Amazon Q Business"
+readme = "README.md"
+authors = [
+    {name = "Jira Q Business Connector Team"},
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators", 
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+]
+keywords = ["jira", "amazon-q-business", "connector", "enterprise-search"]
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.25.0",
+    "boto3>=1.26.0",
+    "pydantic>=1.8.0",
+    "python-dotenv>=0.19.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-repo/jira-q-connector"
+Documentation = "https://github.com/your-repo/jira-q-connector#readme"
+Repository = "https://github.com/your-repo/jira-q-connector"
+"Bug Reports" = "https://github.com/your-repo/jira-q-connector/issues"
+
+[project.scripts]
+jira-q-connector = "jira_q_connector.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "jira_q_connector.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src" 

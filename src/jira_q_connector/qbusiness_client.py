@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError, BotoCoreError
 import time
 from datetime import datetime
 
-from config import AWSConfig
+from .config import AWSConfig
 
 logger = logging.getLogger(__name__)
 

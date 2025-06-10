@@ -6,10 +6,10 @@ import time
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
 
-from config import ConnectorConfig
-from jira_client import JiraClient
-from document_processor import JiraDocumentProcessor
-from qbusiness_client import QBusinessClient
+from .config import ConnectorConfig
+from .jira_client import JiraClient
+from .document_processor import JiraDocumentProcessor
+from .qbusiness_client import QBusinessClient
 
 logger = logging.getLogger(__name__)
 

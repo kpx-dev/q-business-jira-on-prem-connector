@@ -83,15 +83,17 @@ graph LR
 
 ## 🛠️ Installation
 
+### Option 1: Install from Source (Recommended for Development)
+
 1. **Clone the repository:**
    ```bash
    git clone <repository-url>
    cd q-business-jira-on-prem-connector
    ```
 
-2. **Install dependencies:**
+2. **Install in development mode:**
    ```bash
-   pip install -r requirements.txt
+   pip install -e .
    ```
 
 3. **Set up configuration:**
@@ -102,6 +104,21 @@ graph LR
    # Edit with your settings
    nano .env
    ```
+
+### Option 2: Install from PyPI (Future)
+```bash
+pip install jira-q-connector
+```
+
+### Option 3: Install from Wheel
+```bash
+# Build the package
+python -m pip install build
+python -m build
+
+# Install the wheel
+pip install dist/jira_q_connector-*.whl
+```
 
 ## ⚙️ Configuration
 
@@ -161,26 +178,28 @@ JQL_FILTER=status != "Closed" AND updated >= -7d
 
 ```bash
 # Test connections
-python main.py doctor
+jira-q-connector doctor
 
 # Preview sync (dry run)
-python main.py sync --dry-run
+jira-q-connector sync --dry-run
 
 # Perform full sync
-python main.py sync
+jira-q-connector sync
 
 # Clean sync (delete duplicates first)
-python main.py sync --clean
+jira-q-connector sync --clean
 
 # Check sync job status
-python main.py status
+jira-q-connector status
+
+# Alternative: Run as a module
+python -m jira_q_connector doctor
 ```
 
 ### Python API
 
 ```python
-from config import ConnectorConfig
-from jira_connector import JiraQBusinessConnector
+from jira_q_connector import ConnectorConfig, JiraQBusinessConnector
 
 # Load configuration
 config = ConnectorConfig.from_env()
@@ -284,17 +303,14 @@ Each Jira issue is converted to a Q Business document with:
 Run the test suite:
 
 ```bash
-# Run unit tests
-python test_connector.py
+# Install in development mode with test dependencies
+pip install -e ".[dev]"
 
-# Test with real connections (requires environment variables)
-JIRA_SERVER_URL=https://your-jira.com \
-JIRA_USERNAME=user \
-JIRA_PASSWORD=pass \
-Q_APPLICATION_ID=app-id \
-Q_DATA_SOURCE_ID=ds-id \
-Q_INDEX_ID=index-id \
-python test_connector.py
+# Run tests (when test suite is available)
+python -m pytest tests/
+
+# Test real connections manually
+jira-q-connector doctor
 ```
 
 ## 🐛 Troubleshooting
@@ -324,7 +340,7 @@ export JIRA_VERIFY_SSL=false
 
 Enable debug logging:
 ```bash
-python main.py sync --log-level DEBUG
+jira-q-connector sync --log-level DEBUG
 ```
 
 ## 📈 Performance Tuning
@@ -346,10 +362,10 @@ python main.py sync --log-level DEBUG
 ### Cron Example
 ```bash
 # Daily incremental sync at 2 AM
-0 2 * * * /path/to/python /path/to/main.py sync > /var/log/jira-sync.log 2>&1
+0 2 * * * /path/to/jira-q-connector sync > /var/log/jira-sync.log 2>&1
 
 # Weekly full sync on Sundays at 1 AM
-0 1 * * 0 SYNC_MODE=full /path/to/python /path/to/main.py sync
+0 1 * * 0 SYNC_MODE=full /path/to/jira-q-connector sync
 ```
 
 ### AWS Lambda
@@ -357,8 +373,7 @@ Deploy as a Lambda function for serverless execution:
 
 ```python
 import json
-from jira_connector import JiraQBusinessConnector
-from config import ConnectorConfig
+from jira_q_connector import ConnectorConfig, JiraQBusinessConnector
 
 def lambda_handler(event, context):
     config = ConnectorConfig.from_env()
