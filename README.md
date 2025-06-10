@@ -48,7 +48,7 @@ graph LR
 
 **How It Works:**
 
-**🔄 Sync Process (main.py sync):**
+**🔄 Sync Process (jira-q-connector sync):**
 1. **Start Job** - Initialize Q Business data source sync with execution ID
 2. **Extract Data** - Pull Jira issues via REST API v2 using JQL queries
 3. **Transform** - Convert issues to Q Business BatchPutDocument format
@@ -104,21 +104,6 @@ graph LR
    # Edit with your settings
    nano .env
    ```
-
-### Option 2: Install from PyPI (Future)
-```bash
-pip install jira-q-connector
-```
-
-### Option 3: Install from Wheel
-```bash
-# Build the package
-python -m pip install build
-python -m build
-
-# Install the wheel
-pip install dist/jira_q_connector-*.whl
-```
 
 ## ⚙️ Configuration
 
