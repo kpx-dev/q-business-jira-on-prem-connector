@@ -58,6 +58,10 @@ class JiraClient:
     
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make a request to Jira API with error handling"""
+        # Ensure base_url is not empty
+        if not self.base_url:
+            raise Exception("Jira server URL is not configured")
+            
         url = urljoin(f"{self.base_url}/rest/api/2/", endpoint.lstrip('/'))
         
         try:
@@ -162,17 +166,12 @@ class JiraClient:
         }
         
         response = self._make_request('GET', f'issue/{issue_key}', params=params)
-        issue = response.json()
-        
-        logger.debug(f"Retrieved issue {issue_key}")
-        return issue
+        return response.json()
     
     def get_issue_comments(self, issue_key: str) -> List[Dict[str, Any]]:
         """Get comments for a specific issue"""
         response = self._make_request('GET', f'issue/{issue_key}/comment')
         comments = response.json().get('comments', [])
-        
-        logger.debug(f"Retrieved {len(comments)} comments for issue {issue_key}")
         return comments
     
     def get_issue_changelog(self, issue_key: str) -> List[Dict[str, Any]]:
@@ -182,8 +181,6 @@ class JiraClient:
         
         issue = response.json()
         changelog = issue.get('changelog', {}).get('histories', [])
-        
-        logger.debug(f"Retrieved {len(changelog)} changelog entries for issue {issue_key}")
         return changelog
     
     def get_all_issues_iterator(self, 
@@ -215,13 +212,427 @@ class JiraClient:
                 
             start_at += batch_size
     
-    def get_user(self, username: str) -> Dict[str, Any]:
-        """Get user information"""
-        params = {'username': username}
-        response = self._make_request('GET', 'user', params=params)
-        return response.json()
-    
     def close(self):
         """Close the session"""
         if hasattr(self, 'session'):
-            self.session.close() 
+            self.session.close()
+    
+    def get_all_users(self, start_at: int = 0, max_results: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get all users from Jira using the user search API
+        
+        Args:
+            start_at: Starting index for pagination
+            max_results: Maximum number of results to return
+            
+        Returns:
+            List of user objects
+        """
+        params = {
+            'username': '.',  # Use '.' as a wildcard to get all users
+            'startAt': start_at,
+            'maxResults': max_results
+        }
+        
+        try:
+            # Use user/search endpoint instead of users
+            response = self._make_request('GET', 'user/search', params=params)
+            users = response.json()
+            
+            logger.info(f"Retrieved {len(users)} users")
+            
+            # Check if we need to paginate
+            if len(users) == max_results:
+                next_users = self.get_all_users(start_at + max_results, max_results)
+                users.extend(next_users)
+            
+            return users
+        except Exception as e:
+            logger.error(f"Error getting users: {e}")
+            # Try alternative approach if the above doesn't work
+            try:
+                # Alternative: use user/search with empty query
+                params = {
+                    'query': '',
+                    'startAt': start_at,
+                    'maxResults': max_results
+                }
+                response = self._make_request('GET', 'user/search', params=params)
+                users = response.json()
+                logger.info(f"Retrieved {len(users)} users using alternative method")
+                return users
+            except Exception as e2:
+                logger.error(f"Error getting users with alternative method: {e2}")
+                return []
+
+    def get_all_groups(self, start_at: int = 0, max_results: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get all groups from Jira
+        
+        Args:
+            start_at: Starting index for pagination
+            max_results: Maximum number of results to return
+            
+        Returns:
+            List of group objects
+        """
+        params = {
+            'startAt': start_at,
+            'maxResults': max_results
+        }
+        
+        try:
+            response = self._make_request('GET', 'groups/picker', params=params)
+            result = response.json()
+            groups = result.get('groups', [])
+            
+            logger.info(f"Retrieved {len(groups)} groups")
+            
+            # Check if we need to paginate
+            if result.get('total', 0) > start_at + len(groups):
+                next_groups = self.get_all_groups(start_at + max_results, max_results)
+                groups.extend(next_groups)
+            
+            return groups
+        except Exception as e:
+            logger.error(f"Error getting groups: {e}")
+            return []
+
+    def get_all_project_roles(self) -> List[Dict[str, Any]]:
+        """
+        Get all project roles from Jira
+        
+        Returns:
+            List of project role objects
+        """
+        try:
+            response = self._make_request('GET', 'role')
+            roles = response.json()
+            
+            logger.info(f"Retrieved {len(roles)} project roles")
+            return roles
+        except Exception as e:
+            logger.error(f"Error getting project roles: {e}")
+            return []
+
+    def get_all_projects(self) -> List[Dict[str, Any]]:
+        """
+        Get all projects from Jira
+        
+        Returns:
+            List of project objects
+        """
+        try:
+            response = self._make_request('GET', 'project')
+            projects = response.json()
+            
+            logger.info(f"Retrieved {len(projects)} projects")
+            return projects
+        except Exception as e:
+            logger.error(f"Error getting projects: {e}")
+            return []
+
+    def get_all_security_levels(self) -> List[Dict[str, Any]]:
+        """
+        Get all issue security levels from Jira
+        
+        Returns:
+            List of security level objects
+        """
+        try:
+            # First get all security schemes
+            response = self._make_request('GET', 'issuesecurityschemes')
+            schemes = response.json().get('issueSecuritySchemes', [])
+            
+            security_levels = []
+            
+            # For each scheme, get its security levels
+            for scheme in schemes:
+                scheme_id = scheme.get('id')
+                if scheme_id:
+                    scheme_response = self._make_request('GET', f'issuesecurityschemes/{scheme_id}')
+                    scheme_details = scheme_response.json()
+                    
+                    # Extract security levels
+                    levels = scheme_details.get('levels', [])
+                    for level in levels:
+                        level['schemeId'] = scheme_id
+                        level['schemeName'] = scheme.get('name')
+                    
+                    security_levels.extend(levels)
+            
+            logger.info(f"Retrieved {len(security_levels)} security levels from {len(schemes)} schemes")
+            return security_levels
+        except Exception as e:
+            logger.error(f"Error getting security levels: {e}")
+            return []
+
+    def get_group_members(self, group_name: str) -> List[Dict[str, Any]]:
+        """
+        Get members of a group
+        
+        Args:
+            group_name: Name of the group
+            
+        Returns:
+            List of user objects who are members of the group
+        """
+        params = {
+            'groupname': group_name,
+            'includeInactiveUsers': True
+        }
+        
+        try:
+            response = self._make_request('GET', 'group/member', params=params)
+            result = response.json()
+            members = result.get('values', [])
+            
+            logger.info(f"Retrieved {len(members)} members for group {group_name}")
+            return members
+        except Exception as e:
+            logger.error(f"Error getting group members for {group_name}: {e}")
+            return []
+
+    def get_project_permissions(self, project_key: str) -> Dict[str, Any]:
+        """
+        Get permissions for a project using mypermissions API
+        
+        Args:
+            project_key: Project key
+            
+        Returns:
+            Dictionary of permissions
+        """
+        try:
+            # Use mypermissions API to get permissions for current user in the project
+            params = {'projectKey': project_key}
+            response = self._make_request('GET', 'mypermissions', params=params)
+            permissions = response.json()
+            
+            logger.info(f"Retrieved permissions for project {project_key}")
+            return permissions
+        except Exception as e:
+            logger.error(f"Error getting permissions for project {project_key}: {e}")
+            # Since the permissions endpoint doesn't exist, return empty dict
+            # and rely on project roles instead
+            return {}
+
+    def get_users_with_project_permission(self, project_key: str, permission: str) -> List[Dict[str, Any]]:
+        """
+        Get users with a specific permission in a project by checking project roles
+        
+        Args:
+            project_key: Project key
+            permission: Permission key (e.g., 'BROWSE_PROJECTS')
+            
+        Returns:
+            List of user objects with the permission
+        """
+        try:
+            # Get project roles
+            roles_response = self._make_request('GET', f'project/{project_key}/role')
+            roles = roles_response.json()
+            
+            users = []
+            unique_users = set()  # Track unique users to avoid duplicates
+            
+            # For each role, get its actors (users)
+            for role_url in roles.values():
+                if not isinstance(role_url, str):
+                    continue
+                    
+                # Extract role ID from URL
+                role_id = role_url.split('/')[-1]
+                
+                try:
+                    # Get role details
+                    role_response = self._make_request('GET', f'project/{project_key}/role/{role_id}')
+                    role = role_response.json()
+                    
+                    # Extract users
+                    actors = role.get('actors', [])
+                    for actor in actors:
+                        if actor.get('type') == 'atlassian-user-role-actor':
+                            user_name = actor.get('name')
+                            if user_name and user_name not in unique_users:
+                                user = {
+                                    'name': user_name,
+                                    'displayName': actor.get('displayName', user_name)
+                                }
+                                users.append(user)
+                                unique_users.add(user_name)
+                except Exception as role_error:
+                    logger.warning(f"Error getting role {role_id} for project {project_key}: {role_error}")
+                    continue
+            
+            logger.info(f"Retrieved {len(users)} users with permission {permission} for project {project_key}")
+            return users
+        except Exception as e:
+            logger.error(f"Error getting users with permission {permission} for project {project_key}: {e}")
+            return []
+
+    def get_groups_with_project_permission(self, project_key: str, permission: str) -> List[Dict[str, Any]]:
+        """
+        Get groups with a specific permission in a project by checking project roles
+        
+        Args:
+            project_key: Project key
+            permission: Permission key (e.g., 'BROWSE_PROJECTS')
+            
+        Returns:
+            List of group objects with the permission
+        """
+        try:
+            # Get project roles
+            roles_response = self._make_request('GET', f'project/{project_key}/role')
+            roles = roles_response.json()
+            
+            groups = []
+            unique_groups = set()  # Track unique groups to avoid duplicates
+            
+            # For each role, get its actors (groups)
+            for role_url in roles.values():
+                if not isinstance(role_url, str):
+                    continue
+                    
+                # Extract role ID from URL
+                role_id = role_url.split('/')[-1]
+                
+                try:
+                    # Get role details
+                    role_response = self._make_request('GET', f'project/{project_key}/role/{role_id}')
+                    role = role_response.json()
+                    
+                    # Extract groups
+                    actors = role.get('actors', [])
+                    for actor in actors:
+                        if actor.get('type') == 'atlassian-group-role-actor':
+                            group_name = actor.get('name')
+                            if group_name and group_name not in unique_groups:
+                                group = {
+                                    'name': group_name,
+                                    'displayName': actor.get('displayName', group_name)
+                                }
+                                groups.append(group)
+                                unique_groups.add(group_name)
+                except Exception as role_error:
+                    logger.warning(f"Error getting role {role_id} for project {project_key}: {role_error}")
+                    continue
+            
+            logger.info(f"Retrieved {len(groups)} groups with permission {permission} for project {project_key}")
+            return groups
+        except Exception as e:
+            logger.error(f"Error getting groups with permission {permission} for project {project_key}: {e}")
+            return []
+
+    def get_project_roles_for_project(self, project_key: str) -> List[Dict[str, Any]]:
+        """
+        Get roles for a project
+        
+        Args:
+            project_key: Project key
+            
+        Returns:
+            List of role objects
+        """
+        try:
+            response = self._make_request('GET', f'project/{project_key}/role')
+            roles_dict = response.json()
+            
+            roles = []
+            
+            # Convert the role URLs to role objects
+            for role_name, role_url in roles_dict.items():
+                if not isinstance(role_url, str):
+                    continue
+                    
+                # Extract role ID from URL
+                role_id = role_url.split('/')[-1]
+                
+                # Get role details
+                role_response = self._make_request('GET', f'project/{project_key}/role/{role_id}')
+                role = role_response.json()
+                roles.append(role)
+            
+            logger.info(f"Retrieved {len(roles)} roles for project {project_key}")
+            return roles
+        except Exception as e:
+            logger.error(f"Error getting roles for project {project_key}: {e}")
+            return []
+
+    def get_project_role_members(self, project_key: str, role_id: str) -> Dict[str, Any]:
+        """
+        Get members of a project role
+        
+        Args:
+            project_key: Project key
+            role_id: Role ID
+            
+        Returns:
+            Dictionary with users and groups in the role
+        """
+        try:
+            response = self._make_request('GET', f'project/{project_key}/role/{role_id}')
+            role = response.json()
+            
+            # Extract users and groups
+            users = []
+            groups = []
+            
+            actors = role.get('actors', [])
+            for actor in actors:
+                actor_type = actor.get('type')
+                
+                if actor_type == 'atlassian-user-role-actor':
+                    users.append({
+                        'name': actor.get('name'),
+                        'displayName': actor.get('displayName')
+                    })
+                elif actor_type == 'atlassian-group-role-actor':
+                    groups.append({
+                        'name': actor.get('name'),
+                        'displayName': actor.get('displayName')
+                    })
+            
+            result = {
+                'users': users,
+                'groups': groups
+            }
+            
+            logger.info(f"Retrieved {len(users)} users and {len(groups)} groups for role {role_id} in project {project_key}")
+            return result
+        except Exception as e:
+            logger.error(f"Error getting members for role {role_id} in project {project_key}: {e}")
+            return {'users': [], 'groups': []}
+
+    def get_users_with_security_level_access(self, security_id: str) -> List[Dict[str, Any]]:
+        """
+        Get users with access to a security level
+        
+        Note: This is a stub implementation. Security level permissions
+        require specific Jira configuration and APIs not implemented yet.
+        
+        Args:
+            security_id: Security level ID
+            
+        Returns:
+            Empty list (stub implementation)
+        """
+        logger.debug(f"Security level access not implemented for level {security_id}")
+        return []
+
+    def get_groups_with_security_level_access(self, security_id: str) -> List[Dict[str, Any]]:
+        """
+        Get groups with access to a security level
+        
+        Note: This is a stub implementation. Security level permissions
+        require specific Jira configuration and APIs not implemented yet.
+        
+        Args:
+            security_id: Security level ID
+            
+        Returns:
+            Empty list (stub implementation)
+        """
+        logger.debug(f"Security level access not implemented for level {security_id}")
+        return []

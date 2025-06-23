@@ -1,86 +1,92 @@
 """
-Configuration module for Jira Custom Connector for Amazon Q Business
+Configuration classes for Jira Q Business Connector
 """
 import os
-from typing import Optional
-from pydantic import BaseModel, Field
-from dotenv import load_dotenv
+from dataclasses import dataclass, field
+from typing import Optional, List
 
-# Load environment variables
-load_dotenv()
+@dataclass
+class JiraConfig:
+    """Jira configuration"""
+    server_url: str
+    username: str
+    password: str
+    verify_ssl: bool = True
+    timeout: int = 30
 
+@dataclass
+class AWSConfig:
+    """AWS configuration"""
+    region: str = "us-east-1"
 
-class JiraConfig(BaseModel):
-    """Jira server configuration"""
-    server_url: str = Field(..., description="Jira server URL (e.g., https://your-jira.company.com)")
-    username: str = Field(..., description="Jira username")
-    password: str = Field(..., description="Jira password or API token")
-    verify_ssl: bool = Field(default=True, description="Verify SSL certificates")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
+@dataclass
+class QBusinessConfig:
+    """Amazon Q Business configuration"""
+    application_id: str
+    data_source_id: str
+    index_id: str
 
-
-class AWSConfig(BaseModel):
-    """AWS Q Business configuration"""
-    region: str = Field(default="us-east-1", description="AWS region")
-    application_id: str = Field(..., description="Q Business application ID")
-    data_source_id: str = Field(..., description="Q Business data source ID")
-    index_id: str = Field(..., description="Q Business index ID")
-    role_arn: Optional[str] = Field(default=None, description="IAM role ARN for cross-account access")
-    
-    # DynamoDB caching
-    cache_table_name: Optional[str] = Field(default=None, description="DynamoDB table name for caching")
-
-
-class ConnectorConfig(BaseModel):
-    """Main connector configuration"""
+@dataclass
+class ConnectorConfig:
+    """Connector configuration"""
     jira: JiraConfig
     aws: AWSConfig
+    qbusiness: QBusinessConfig
     
-    # Sync settings
-    sync_mode: str = Field(default="full", description="Sync mode: 'full' or 'incremental'")
-    batch_size: int = Field(default=10, description="Batch size for document processing (max 10 for Q Business)")
+    # Sync options
+    sync_mode: str = "full"
+    batch_size: int = 10
+    include_comments: bool = True
+    include_history: bool = False
     
-    # Content settings
-    include_comments: bool = Field(default=True, description="Include issue comments")
-    include_history: bool = Field(default=False, description="Include issue change history")
+    # Filtering options
+    projects: Optional[List[str]] = None
+    issue_types: Optional[List[str]] = None
+    jql_filter: Optional[str] = None
     
-    # Filtering
-    jql_filter: Optional[str] = Field(default=None, description="JQL filter to limit issues")
-    projects: Optional[list[str]] = Field(default=None, description="List of project keys to sync")
-    issue_types: Optional[list[str]] = Field(default=None, description="List of issue types to sync")
-    
-    # Caching
-    enable_cache: bool = Field(default=False, description="Enable DynamoDB caching")
+    # Caching options
+    # Access Control is always enabled
     
     @classmethod
-    def from_env(cls) -> "ConnectorConfig":
+    def from_env(cls):
         """Create configuration from environment variables"""
+        # Jira configuration
         jira_config = JiraConfig(
-            server_url=os.getenv("JIRA_SERVER_URL", ""),
-            username=os.getenv("JIRA_USERNAME", ""),
-            password=os.getenv("JIRA_PASSWORD", ""),
-            verify_ssl=os.getenv("JIRA_VERIFY_SSL", "true").lower() == "true",
-            timeout=int(os.getenv("JIRA_TIMEOUT", "30"))
+            server_url=os.environ.get("JIRA_SERVER_URL", ""),
+            username=os.environ.get("JIRA_USERNAME", ""),
+            password=os.environ.get("JIRA_PASSWORD", ""),
+            verify_ssl=os.environ.get("JIRA_VERIFY_SSL", "true").lower() == "true",
+            timeout=int(os.environ.get("JIRA_TIMEOUT", "30"))
         )
         
+        # AWS configuration
         aws_config = AWSConfig(
-            region=os.getenv("AWS_REGION", "us-east-1"),
-            application_id=os.getenv("Q_APPLICATION_ID", ""),
-            data_source_id=os.getenv("Q_DATA_SOURCE_ID", ""),
-            index_id=os.getenv("Q_INDEX_ID", ""),
-            role_arn=os.getenv("AWS_ROLE_ARN"),
-            cache_table_name=os.getenv("CACHE_TABLE_NAME")
+            region=os.environ.get("AWS_REGION", "us-east-1")
         )
         
-        return cls(
+        # Q Business configuration
+        qbusiness_config = QBusinessConfig(
+            application_id=os.environ.get("Q_APPLICATION_ID", ""),
+            data_source_id=os.environ.get("Q_DATA_SOURCE_ID", ""),
+            index_id=os.environ.get("Q_INDEX_ID", "")
+        )
+        
+        # Create connector configuration
+        config = cls(
             jira=jira_config,
             aws=aws_config,
-            sync_mode=os.getenv("SYNC_MODE", "full"),
-            batch_size=int(os.getenv("BATCH_SIZE", "10")),
-            include_comments=os.getenv("INCLUDE_COMMENTS", "true").lower() == "true",
-            include_history=os.getenv("INCLUDE_HISTORY", "false").lower() == "true",
-            jql_filter=os.getenv("JQL_FILTER"),
-            projects=os.getenv("PROJECTS", "").split(",") if os.getenv("PROJECTS") else None,
-            issue_types=os.getenv("ISSUE_TYPES", "").split(",") if os.getenv("ISSUE_TYPES") else None,
-            enable_cache=os.getenv("ENABLE_CACHE", "false").lower() == "true"
-        ) 
+            qbusiness=qbusiness_config,
+            
+            # Sync options
+            sync_mode=os.environ.get("SYNC_MODE", "full"),
+            batch_size=int(os.environ.get("BATCH_SIZE", "10")),
+            include_comments=os.environ.get("INCLUDE_COMMENTS", "true").lower() == "true",
+            include_history=os.environ.get("INCLUDE_HISTORY", "false").lower() == "true",
+            
+            # Filtering options
+            projects=os.environ.get("PROJECTS", "").split(",") if os.environ.get("PROJECTS") else None,
+            issue_types=os.environ.get("ISSUE_TYPES", "").split(",") if os.environ.get("ISSUE_TYPES") else None,
+            jql_filter=os.environ.get("JQL_FILTER")
+        )
+        
+        return config
