@@ -2,50 +2,6 @@
 
 A comprehensive Python-based custom connector that synchronizes Jira on-premises server (version 9.12.17) with Amazon Q Business using the BatchPutDocument API.
 
-## 📊 Data Flow Architecture
-
-```mermaid
-graph LR
-    A[🏢 Jira Server] --> B[🔍 Connector] --> C[☁️ Q Business]
-    
-    subgraph Process ["🔄 Sync Steps"]
-        direction TB
-        S1[1️⃣ Start Job]
-        S2[2️⃣ Extract Data]
-        S3[3️⃣ Transform]
-        S4[4️⃣ Upload]
-        S5[5️⃣ Complete]
-        
-        S1 --> S2 --> S3 --> S4 --> S5
-    end
-    
-    subgraph Content ["📄 Document Data"]
-        direction TB
-        D1[📝 Issues]
-        D2[💬 Comments]
-        D3[📊 Metadata]
-        D4[🔗 Links]
-    end
-    
-    subgraph QStack ["☁️ Q Business"]
-        direction TB
-        Q1[📱 Application]
-        Q2[📂 Index]
-        Q3[🔌 Data Source]
-        Q4[🔍 Search Results]
-        
-        Q1 --> Q2 --> Q3 --> Q4
-    end
-    
-    B -.-> S1
-    S3 -.-> D1
-    C -.-> Q1
-    
-    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style B fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style C fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-```
-
 **How It Works:**
 
 **🔄 Sync Process (jira-q-connector sync):**
@@ -68,6 +24,7 @@ graph LR
 - **✅ Jira Server 9.12.17 Compatibility**: Uses Jira REST API v2 for maximum compatibility
 - **🔄 Full & Incremental Sync**: Support for both full and incremental synchronization modes
 - **📝 Rich Content Extraction**: Extracts issues, comments, change history, and metadata
+- **🔒 Access Control Support**: Synchronizes Jira permissions to Q Business User Store
 - **🏷️ Advanced Filtering**: Filter by projects, issue types, or custom JQL queries
 - **📊 Batch Processing**: Efficient batch upload to Amazon Q Business
 - **🔧 Simple Configuration**: Environment variables via .env file
@@ -134,9 +91,7 @@ PROJECTS=PROJECT1,PROJECT2
 ISSUE_TYPES=Bug,Task,Story
 JQL_FILTER=status != "Closed" AND updated >= -7d
 
-# Caching (Optional)
-ENABLE_CACHE=true
-CACHE_TABLE_NAME=jira-q-connector-cache
+# Access Control is enabled by default
 ```
 
 ### Configuration Details
@@ -160,8 +115,7 @@ CACHE_TABLE_NAME=jira-q-connector-cache
 - `PROJECTS`: Comma-separated project keys to sync
 - `ISSUE_TYPES`: Comma-separated issue types to sync
 - `JQL_FILTER`: Custom JQL filter for issue selection
-- `ENABLE_CACHE`: Enable DynamoDB caching (default: false)
-- `CACHE_TABLE_NAME`: DynamoDB table name for caching
+
 
 ## 🎯 Usage
 
@@ -182,15 +136,11 @@ jira-q-connector sync
 # Clean sync (delete duplicates first)
 jira-q-connector sync --clean
 
-# Cached sync (skip unchanged documents)
-jira-q-connector sync --cache
-
 # Check sync job status
 jira-q-connector status
 
-# Cache management
-jira-q-connector cache stats
-jira-q-connector cache clear
+# Stop running sync jobs
+jira-q-connector stop
 
 # Alternative: Run as a module
 python -m jira_q_connector doctor
@@ -230,77 +180,40 @@ connector.stop_qbusiness_sync(execution_id)
 connector.cleanup()
 ```
 
-## 🗄️ DynamoDB Caching
+## 🔒 Access Control (ACL) Support
 
-The connector supports optional DynamoDB caching to avoid re-syncing unchanged documents, significantly improving sync performance for large Jira instances.
+The connector supports synchronizing Jira permissions to Amazon Q Business User Store, enabling proper access control for your Jira documents.
 
 ### How It Works
 
-1. **Content Hashing**: Each document's content is hashed using key fields (summary, description, status, etc.)
-2. **Change Detection**: Before syncing, the connector compares current content hash with cached hash
-3. **Skip Unchanged**: Documents with matching hashes are skipped
-4. **Cache Updates**: Successfully synced documents update the cache with new hash and timestamp
+1. **Permission Extraction**: The connector extracts permissions from Jira's complex permission model
+2. **User Store Mapping**: Maps Jira users, groups, and project roles to Q Business User Store
+3. **Document ACL**: Applies appropriate ACL to each document based on Jira permissions
+4. **Hierarchical Structure**: Preserves Jira's permission hierarchy in Q Business
 
 ### Setup
 
-1. **Enable Caching**:
-   ```bash
-   # Environment variable
-   ENABLE_CACHE=true
-   CACHE_TABLE_NAME=jira-q-connector-cache
-   
-   # Or use CLI flag
-   jira-q-connector sync --cache
-   ```
-
-2. **DynamoDB Permissions**: Add to your IAM policy:
+1. **Q Business Permissions**: Ensure your IAM policy includes:
    ```json
    {
        "Effect": "Allow",
        "Action": [
-           "dynamodb:CreateTable",
-           "dynamodb:PutItem",
-           "dynamodb:GetItem",
-           "dynamodb:BatchWriteItem",
-           "dynamodb:Scan",
-           "dynamodb:DescribeTable"
+           "qbusiness:BatchPutUserGroupStore",
+           "qbusiness:BatchDeleteUserGroupStore"
        ],
-       "Resource": "arn:aws:dynamodb:*:*:table/jira-q-connector-cache"
+       "Resource": "arn:aws:qbusiness:*:*:application/*/index/*/user-group-store"
    }
    ```
 
-3. **Table Creation**: The table is created automatically on first use with:
-   - **Primary Key**: `document_id` (String)
-   - **Billing Mode**: Pay-per-request
-   - **TTL**: 30 days (automatic cleanup)
+### Permission Mapping
 
-### Cache Management
+The connector maps Jira permissions to Q Business as follows:
 
-```bash
-# View cache statistics
-jira-q-connector cache stats
-
-# Clear all cache entries
-jira-q-connector cache clear
-```
-
-### Benefits
-
-- **Performance**: Skip unchanged documents (can reduce sync time by 70-90%)
-- **Cost Efficiency**: Fewer API calls to both Jira and Q Business
-- **Bandwidth**: Reduced data transfer
-- **Reliability**: Less load on Jira server
-
-### Cache Data Structure
-
-Each cache entry contains:
-- `document_id`: Unique document identifier
-- `content_hash`: SHA256 hash of document content
-- `last_sync`: Timestamp of last successful sync
-- `sync_status`: Success/failure status
-- `jira_key`: Original Jira issue key
-- `jira_updated`: Jira's last updated timestamp
-- `ttl`: Automatic expiration (30 days)
+- **Users**: Direct mapping of Jira users to Q Business users
+- **Groups**: Jira groups become Q Business groups
+- **Project Roles**: Each project role becomes a Q Business group
+- **Project Access**: Users with browse permission for a project get access to its documents
+- **Security Levels**: Issue security levels are mapped to Q Business groups
 
 ## 🔧 Amazon Q Business Setup
 
@@ -338,6 +251,8 @@ Using AWS Console:
                 "qbusiness:StopDataSourceSyncJob",
                 "qbusiness:GetDataSourceSyncJob",
                 "qbusiness:ListDataSourceSyncJobs",
+                "qbusiness:BatchPutUserGroupStore",
+                "qbusiness:BatchDeleteUserGroupStore",
                 "qbusiness:GetApplication"
             ],
             "Resource": [
@@ -345,18 +260,6 @@ Using AWS Console:
                 "arn:aws:qbusiness:*:*:application/*/index/*",
                 "arn:aws:qbusiness:*:*:application/*/index/*/data-source/*"
             ]
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:CreateTable",
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:BatchWriteItem",
-                "dynamodb:Scan",
-                "dynamodb:DescribeTable"
-            ],
-            "Resource": "arn:aws:dynamodb:*:*:table/jira-q-connector-cache"
         }
     ]
 }
@@ -457,14 +360,14 @@ jira-q-connector doctor --log-level DEBUG
 
 ### Cron Example
 ```bash
-# Daily incremental sync at 2 AM with caching
-0 2 * * * /usr/local/bin/jira-q-connector sync --cache > /var/log/jira-sync.log 2>&1
+# Daily incremental sync at 2 AM
+0 2 * * * /usr/local/bin/jira-q-connector sync > /var/log/jira-sync.log 2>&1
 
 # Weekly full sync on Sundays at 1 AM
 0 1 * * 0 SYNC_MODE=full /usr/local/bin/jira-q-connector sync --clean > /var/log/jira-full-sync.log 2>&1
 
 # Alternative: Using specific path to Python module
-# 0 2 * * * cd /path/to/project && python -m jira_q_connector sync --cache
+# 0 2 * * * cd /path/to/project && python -m jira_q_connector sync
 ```
 
 ### AWS Lambda
@@ -485,7 +388,7 @@ def lambda_handler(event, context):
         
         # Run the CLI command
         result = subprocess.run(
-            ['jira-q-connector', 'sync', '--cache'],
+            ['jira-q-connector', 'sync'],
             capture_output=True,
             text=True,
             timeout=900  # 15 minutes max

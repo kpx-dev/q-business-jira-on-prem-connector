@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 import html
 import re
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -68,18 +69,17 @@ class JiraDocumentProcessor:
                 'id': f"jira-issue-{key}",
                 'title': title,
                 'content': {
-                    'blob': content.encode('utf-8')
+                    'blob': self._encode_content_to_base64(content)
                 },
                 'attributes': attributes,
                 'contentType': 'PLAIN_TEXT'
             }
             
-            logger.debug(f"Processed issue {key} into document")
             return document
             
         except Exception as e:
-            logger.error(f"Error processing issue {issue.get('key', 'unknown')}: {e}")
-            raise
+            logger.error(f"Failed to process issue {key}: {e}")
+            return None
     
     def _extract_description(self, fields: Dict[str, Any]) -> str:
         """Extract and clean description text"""
@@ -272,22 +272,7 @@ class JiraDocumentProcessor:
         })
         
         # Required attributes for custom connector (per AWS documentation)
-        if execution_id:
-            # Add _data_source_id (required for custom connectors)
-            attributes.append({
-                'name': '_data_source_id',
-                'value': {
-                    'stringValue': 'custom-jira-connector'  # This will be updated by the connector
-                }
-            })
-            
-            # Add _data_source_sync_job_execution_id (required for custom connectors)
-            attributes.append({
-                'name': '_data_source_sync_job_execution_id',
-                'value': {
-                    'stringValue': execution_id
-                }
-            })
+        # Note: _data_source_sync_job_execution_id is automatically added by AWS when using dataSourceSyncId parameter
         
         # Issue key
         if issue.get('key'):
@@ -435,4 +420,8 @@ class JiraDocumentProcessor:
                 continue
         
         logger.info(f"Processed {len(documents)} documents from {len(issues)} issues")
-        return documents 
+        return documents
+    
+    def _encode_content_to_base64(self, content: str) -> str:
+        """Encode content to base64"""
+        return base64.b64encode(content.encode('utf-8')).decode('utf-8') 
