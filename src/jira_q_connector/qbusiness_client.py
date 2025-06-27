@@ -435,3 +435,131 @@ class QBusinessClient:
             }
         )
         logger.debug(f"Created/updated group: {principal_id}")
+
+    def put_group(self, group_name: str, group_members: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+        """
+        Put a group with its members in Q Business
+        
+        Args:
+            group_name: Name of the group
+            group_members: Dictionary with memberUsers and memberGroups lists
+            
+        Returns:
+            Dictionary with result information
+        """
+        try:
+            self.client.put_group(
+                applicationId=self.qbusiness_config.application_id,
+                indexId=self.qbusiness_config.index_id,
+                groupName=group_name,
+                dataSourceId=self.qbusiness_config.data_source_id,
+                type='DATASOURCE',
+                groupMembers=group_members
+            )
+            
+            return {
+                'success': True,
+                'message': f"Successfully created/updated group: {group_name}"
+            }
+        except Exception as e:
+            logger.error(f"Error creating/updating group {group_name}: {e}")
+            return {
+                'success': False,
+                'message': f"Failed to create/update group {group_name}: {e}"
+            }
+    
+    def get_user(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get user information from Q Business
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Dictionary with user information or error
+        """
+        try:
+            response = self.client.get_user(
+                applicationId=self.qbusiness_config.application_id,
+                userId=user_id
+            )
+            
+            return {
+                'success': True,
+                'user': response
+            }
+        except Exception as e:
+            if 'ResourceNotFoundException' in str(e):
+                return {
+                    'success': False,
+                    'message': 'User not found',
+                    'user_exists': False
+                }
+            else:
+                logger.error(f"Error getting user {user_id}: {e}")
+                return {
+                    'success': False,
+                    'message': f"Failed to get user {user_id}: {e}"
+                }
+    
+    def create_user(self, user_id: str, user_aliases: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Create a user in Q Business
+        
+        Args:
+            user_id: User ID
+            user_aliases: List of user aliases
+            
+        Returns:
+            Dictionary with result information
+        """
+        try:
+            self.client.create_user(
+                applicationId=self.qbusiness_config.application_id,
+                userId=user_id,
+                userAliases=user_aliases
+            )
+            
+            return {
+                'success': True,
+                'message': f"Successfully created user: {user_id}"
+            }
+        except Exception as e:
+            logger.error(f"Error creating user {user_id}: {e}")
+            return {
+                'success': False,
+                'message': f"Failed to create user {user_id}: {e}"
+            }
+    
+    def update_user(self, user_id: str, user_aliases: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Update a user in Q Business
+        
+        Args:
+            user_id: User ID
+            user_aliases: List of user aliases to update
+            
+        Returns:
+            Dictionary with result information
+        """
+        try:
+            params = {
+                'applicationId': self.qbusiness_config.application_id,
+                'userId': user_id
+            }
+            
+            if user_aliases:
+                params['userAliasesToUpdate'] = user_aliases
+            
+            self.client.update_user(**params)
+            
+            return {
+                'success': True,
+                'message': f"Successfully updated user: {user_id}"
+            }
+        except Exception as e:
+            logger.error(f"Error updating user {user_id}: {e}")
+            return {
+                'success': False,
+                'message': f"Failed to update user {user_id}: {e}"
+            }

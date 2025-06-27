@@ -263,6 +263,11 @@ class JiraQBusinessConnector:
                     # Process issue to Q Business document
                     doc = doc_processor.process_issue(issue, execution_id)
                     if doc:
+                        # Add ACL information to the document
+                        acl_info = self.acl_manager.get_document_acl(issue, jira_client=self.jira_client)
+                        if acl_info:
+                            doc.update(acl_info)
+                        
                         documents.append(doc)
                     
                 except Exception as e:
@@ -300,14 +305,7 @@ class JiraQBusinessConnector:
             Dictionary with sync results
         """
         try:
-            logger.info(f"Starting ACL synchronization with execution ID: {execution_id}")
-            
-            # Initialize stats
-            stats = {
-                'users': 0,
-                'groups': 0,
-                'memberships': 0
-            }
+            logger.info(f"Starting comprehensive ACL synchronization with execution ID: {execution_id}")
             
             # ACL is always enabled now, but check if acl_manager exists
             if not hasattr(self, 'acl_manager') or self.acl_manager is None:
@@ -315,55 +313,30 @@ class JiraQBusinessConnector:
                 return {
                     'success': False,
                     'message': "ACL manager not initialized",
-                    'stats': stats
+                    'stats': {'users': 0, 'groups': 0, 'memberships': 0}
                 }
             
-            # Get principal store entries from ACL manager
-            logger.info("Getting principal store entries from ACL manager")
-            principal_entries = self.acl_manager.get_principal_store_entries(self.jira_client)
+            # Use the new comprehensive ACL sync method
+            result = self.acl_manager.sync_jira_acl_to_qbusiness(self.jira_client, self.qbusiness_client)
             
-            if not principal_entries:
-                logger.warning("No principal store entries found")
-                return {
-                    'success': True,
-                    'message': "No principal store entries found",
-                    'stats': stats
+            # Transform stats format for backward compatibility
+            if result.get('success') and 'stats' in result:
+                original_stats = result['stats']
+                transformed_stats = {
+                    'users': original_stats.get('users_processed', 0),
+                    'groups': original_stats.get('groups_processed', 0),
+                    'memberships': original_stats.get('projects_processed', 0)  # Use projects as memberships proxy
                 }
+                result['stats'] = transformed_stats
             
-            # Count entry types for stats
-            for entry in principal_entries:
-                principal = entry.get('principal', {})
-                principal_type = principal.get('principalType')
-                
-                if principal_type == 'USER':
-                    stats['users'] += 1
-                elif principal_type == 'GROUP':
-                    if 'memberIds' in principal:
-                        stats['memberships'] += 1
-                    else:
-                        stats['groups'] += 1
-            
-            # Put principal store entries to Q Business
-            logger.info(f"Putting {len(principal_entries)} principal store entries to Q Business")
-            
-            # Sync ACL information with Q Business User Store
-            result = self.qbusiness_client.batch_put_user_store_entries(principal_entries)
-            
-            if not result['success']:
-                logger.warning(f"ACL sync had issues: {result['message']}")
-            
-            return {
-                'success': True,
-                'message': f"Successfully synchronized ACL information",
-                'stats': stats
-            }
+            return result
             
         except Exception as e:
             logger.error(f"Error synchronizing ACL information: {e}")
             return {
                 'success': False,
                 'message': f"Failed to synchronize ACL information: {e}",
-                'stats': stats if 'stats' in locals() else {'users': 0, 'groups': 0, 'memberships': 0}
+                'stats': {'users': 0, 'groups': 0, 'memberships': 0}
             }
 
     

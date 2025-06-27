@@ -367,30 +367,27 @@ class JiraClient:
             logger.error(f"Error getting security levels: {e}")
             return []
 
-    def get_group_members(self, group_name: str) -> List[Dict[str, Any]]:
+    def get_group_members(self, group_name: str, include_inactive: bool = False) -> List[Dict[str, Any]]:
         """
         Get members of a group
         
         Args:
-            group_name: Name of the group
+            group_name: Group name
+            include_inactive: Whether to include inactive users
             
         Returns:
-            List of user objects who are members of the group
+            List of group members
         """
-        params = {
-            'groupname': group_name,
-            'includeInactiveUsers': True
-        }
-        
         try:
+            params = {
+                'groupname': group_name,
+                'includeInactiveUsers': str(include_inactive).lower()
+            }
             response = self._make_request('GET', 'group/member', params=params)
             result = response.json()
-            members = result.get('values', [])
-            
-            logger.info(f"Retrieved {len(members)} members for group {group_name}")
-            return members
+            return result.get('values', [])
         except Exception as e:
-            logger.error(f"Error getting group members for {group_name}: {e}")
+            logger.error(f"Error getting members for group {group_name}: {e}")
             return []
 
     def get_project_permissions(self, project_key: str) -> Dict[str, Any]:
@@ -636,3 +633,56 @@ class JiraClient:
         """
         logger.debug(f"Security level access not implemented for level {security_id}")
         return []
+
+    def get_project_permission_scheme(self, project_key: str) -> Dict[str, Any]:
+        """
+        Get permission scheme for a project
+        
+        Args:
+            project_key: Project key or ID
+            
+        Returns:
+            Dictionary with permission scheme information
+        """
+        try:
+            response = self._make_request('GET', f'project/{project_key}/permissionscheme')
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error getting permission scheme for project {project_key}: {e}")
+            return {}
+    
+    def get_permission_scheme_grants(self, scheme_id: str) -> List[Dict[str, Any]]:
+        """
+        Get permission grants for a permission scheme
+        
+        Args:
+            scheme_id: Permission scheme ID
+            
+        Returns:
+            List of permission grants
+        """
+        try:
+            response = self._make_request('GET', f'permissionscheme/{scheme_id}/permission')
+            result = response.json()
+            return result.get('permissions', [])
+        except Exception as e:
+            logger.error(f"Error getting permission grants for scheme {scheme_id}: {e}")
+            return []
+    
+    def get_project_role_actors(self, project_key: str, role_id: str) -> Dict[str, Any]:
+        """
+        Get actors (users and groups) for a role in a project
+        
+        Args:
+            project_key: Project key or ID
+            role_id: Role ID
+            
+        Returns:
+            Dictionary with role actors information
+        """
+        try:
+            response = self._make_request('GET', f'project/{project_key}/role/{role_id}')
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error getting role actors for project {project_key}, role {role_id}: {e}")
+            return {}

@@ -4,6 +4,8 @@ Configuration classes for Jira Q Business Connector
 import os
 from dataclasses import dataclass, field
 from typing import Optional, List
+from pathlib import Path
+from dotenv import load_dotenv
 
 @dataclass
 class JiraConfig:
@@ -49,7 +51,29 @@ class ConnectorConfig:
     
     @classmethod
     def from_env(cls):
-        """Create configuration from environment variables"""
+        """Create configuration from environment variables and .env file"""
+        # Load .env file from current directory or project root
+        env_paths = [
+            Path(".env"),                    # Current directory
+            Path("./.env"),                  # Explicit current directory
+            Path("../.env"),                 # Parent directory
+            Path("../../.env"),              # Two levels up
+            Path.cwd() / ".env",             # Current working directory
+        ]
+        
+        # Try to find and load .env file
+        env_loaded = False
+        for env_path in env_paths:
+            if env_path.exists():
+                load_dotenv(env_path, override=True)
+                print(f"📋 Loaded environment from: {env_path.absolute()}")
+                env_loaded = True
+                break
+        
+        if not env_loaded:
+            print("⚠️  No .env file found. Using system environment variables only.")
+            print("💡 Create a .env file from env.example for easier configuration.")
+        
         # Jira configuration
         jira_config = JiraConfig(
             server_url=os.environ.get("JIRA_SERVER_URL", ""),
@@ -89,4 +113,42 @@ class ConnectorConfig:
             jql_filter=os.environ.get("JQL_FILTER")
         )
         
+        # Validate required configuration
+        cls._validate_config(config)
+        
         return config
+    
+    @classmethod
+    def _validate_config(cls, config):
+        """Validate that required configuration is present"""
+        errors = []
+        
+        # Validate Jira config
+        if not config.jira.server_url:
+            errors.append("JIRA_SERVER_URL is required")
+        if not config.jira.username:
+            errors.append("JIRA_USERNAME is required")
+        if not config.jira.password:
+            errors.append("JIRA_PASSWORD is required")
+            
+        # Validate Q Business config
+        if not config.qbusiness.application_id:
+            errors.append("Q_APPLICATION_ID is required")
+        if not config.qbusiness.data_source_id:
+            errors.append("Q_DATA_SOURCE_ID is required")
+        if not config.qbusiness.index_id:
+            errors.append("Q_INDEX_ID is required")
+        
+        if errors:
+            print("❌ Configuration errors found:")
+            for error in errors:
+                print(f"   • {error}")
+            print("\n💡 Please check your .env file or environment variables.")
+            print("💡 Copy env.example to .env and fill in your values.")
+            raise ValueError(f"Missing required configuration: {', '.join(errors)}")
+    
+    @classmethod  
+    def reload_from_env(cls):
+        """Reload configuration from .env file (useful for development)"""
+        print("🔄 Reloading configuration from .env file...")
+        return cls.from_env()

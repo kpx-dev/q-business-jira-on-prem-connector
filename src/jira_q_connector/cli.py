@@ -442,7 +442,17 @@ Environment Variables:
         from .jira_connector import JiraQBusinessConnector
         
         # Load configuration from environment
-        config = ConnectorConfig.from_env()
+        try:
+            config = ConnectorConfig.from_env()
+        except ValueError as e:
+            print(f"\n❌ Configuration Error: {e}")
+            print("\n🔧 Quick Setup:")
+            print("   1. Copy env.example to .env:")
+            print("      cp env.example .env")
+            print("   2. Edit .env file with your Jira and Q Business settings")
+            print("   3. Run the command again")
+            print("\n📖 See README.md for detailed configuration instructions")
+            return 1
         
         # Create connector
         connector = JiraQBusinessConnector(config)
