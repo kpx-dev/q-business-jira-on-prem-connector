@@ -6,6 +6,32 @@ import argparse
 import logging
 import sys
 
+# Status emoji mapping
+STATUS_EMOJIS = {
+    'SUCCEEDED': '✅',
+    'FAILED': '❌', 
+    'RUNNING': '🔄',
+    'STOPPING': '🛑',
+    'STOPPED': '⏹️'
+}
+
+def get_status_emoji(status: str) -> str:
+    """Get emoji for sync job status"""
+    return STATUS_EMOJIS.get(status, '❓')
+
+def print_result(success: bool, message: str, prefix: str = ""):
+    """Print a result message with appropriate emoji"""
+    emoji = "✅" if success else "❌"
+    print(f"{prefix}{emoji} {message}")
+
+def print_warning(message: str, prefix: str = ""):
+    """Print a warning message"""
+    print(f"{prefix}⚠️  Warning: {message}")
+
+def print_info(message: str, prefix: str = ""):
+    """Print an info message"""
+    print(f"{prefix}ℹ️  {message}")
+
 
 def setup_logging(level: str = "INFO"):
     """Setup logging configuration"""
@@ -29,10 +55,10 @@ def cmd_doctor(args, connector):
     results = connector.test_connections()
     
     if results['overall_success']:
-        print("✅ All connections successful!")
+        print_result(True, "All connections successful!")
         return 0
     else:
-        print("❌ Connection issues detected:")
+        print_result(False, "Connection issues detected:")
         if not results['jira']['success']:
             print(f"   Jira: {results['jira']['message']}")
         if not results['qbusiness']['success']:
@@ -92,7 +118,7 @@ def cmd_status(args, connector):
                 jobs = result['sync_jobs']
                 
                 if not jobs:
-                    print("   No sync jobs found")
+                    print_info("No sync jobs found", "   ")
                     return 0
                 
                 for job in jobs[:5]:  # Show top 5
@@ -100,13 +126,7 @@ def cmd_status(args, connector):
                     status = job.get('status', 'Unknown')
                     start_time = job.get('startTime', 'Unknown')
                     
-                    status_emoji = {
-                        'SUCCEEDED': '✅',
-                        'FAILED': '❌', 
-                        'RUNNING': '🔄',
-                        'STOPPING': '🛑',
-                        'STOPPED': '⏹️'
-                    }.get(status, '❓')
+                    status_emoji = get_status_emoji(status)
                     
                     print(f"   {status_emoji} {execution_id} | {status} | {start_time}")
                 
@@ -122,47 +142,28 @@ def cmd_status(args, connector):
 
 
 def cmd_full_sync(args, connector):
-    """Complete sync workflow: Start job → Sync documents → Stop job"""
-    dry_run = args.dry_run
+    """Complete sync workflow: Start job → Sync ACL → Sync documents → Stop job"""
     clean_sync = args.clean
-    enable_cache = getattr(args, 'cache', False)
     
-    # Update connector config if cache flag is used
-    if enable_cache:
-        connector.config.enable_cache = True
-        # Re-initialize cache client if needed
-        if not connector.cache_client:
-            from .cache_client import CacheClient
-            connector.cache_client = CacheClient(connector.config.aws)
-    
-    cache_status = "enabled" if (enable_cache or connector.config.enable_cache) else "disabled"
-    
-    if dry_run:
-        print(f"🔍 Starting dry run of complete sync workflow (no documents will be uploaded, cache: {cache_status})...")
-    else:
-        print(f"🚀 Starting complete sync workflow: Jira → Q Business (cache: {cache_status})")
+    print(f"🚀 Starting complete sync workflow: Jira → Q Business")
     
     try:
         # Step 1: Start Q Business sync job
-        print(f"\n📋 Step 1 of 4: Starting Q Business data source sync job...")
+        print(f"\n📋 Step 1 of 5: Starting Q Business data source sync job...")
         
-        if dry_run:
-            execution_id = "dry-run-execution-id"
-            print("✅ Dry run: Would start sync job here")
-        else:
-            sync_job_result = connector.start_qbusiness_sync()
-            
-            if not sync_job_result['success']:
-                print(f"❌ Failed to start sync job: {sync_job_result['message']}")
-                return 1
-            
-            execution_id = sync_job_result['execution_id']
-            print(f"✅ Sync job started successfully")
-            print(f"   Execution ID: {execution_id}")
+        sync_job_result = connector.start_qbusiness_sync()
+        
+        if not sync_job_result['success']:
+            print(f"❌ Failed to start sync job: {sync_job_result['message']}")
+            return 1
+        
+        execution_id = sync_job_result['execution_id']
+        print(f"✅ Sync job started successfully")
+        print(f"   Execution ID: {execution_id}")
         
         # Step 1.5: Clean existing documents if requested
-        if clean_sync and not dry_run:
-            print(f"\n🧹 Step 1.5 of 4: Cleaning existing documents...")
+        if clean_sync:
+            print(f"\n🧹 Step 1.5 of 5: Cleaning existing documents...")
             clean_result = connector.clean_all_documents(execution_id)
             
             if clean_result['success']:
@@ -171,63 +172,69 @@ def cmd_full_sync(args, connector):
                 print(f"⚠️  Warning: Failed to clean documents: {clean_result['message']}")
                 print("   Continuing with sync...")
         
-        # Step 2: Sync Jira documents with the execution ID
-        print(f"\n📄 Step 2 of 4: Syncing Jira issues to Q Business...")
+        # Step 2: Sync ACL information first (so users/groups exist before documents reference them)
+        print(f"\n🔒 Step 2 of 5: Syncing ACL information to Q Business User Store...")
         
-        if dry_run:
-            # For dry run, just show what would be done
-            sync_result = connector.sync_issues_with_execution_id(execution_id, dry_run=True, clean_first=clean_sync)
-            print(f"✅ Dry run completed. Would sync {sync_result.get('stats', {}).get('uploaded_documents', 0)} documents")
+        # Sync ACL information with the execution ID
+        acl_result = connector.sync_acl_with_execution_id(execution_id)
+        
+        if acl_result['success']:
+            print(f"✅ ACL sync completed successfully")
+            print(f"   Users: {acl_result.get('stats', {}).get('users', 0)}")
+            print(f"   Groups: {acl_result.get('stats', {}).get('groups', 0)}")
+            print(f"   Memberships: {acl_result.get('stats', {}).get('memberships', 0)}")
+            acl_success = True
         else:
-            # Real sync with execution ID
-            sync_result = connector.sync_issues_with_execution_id(execution_id, dry_run=False, clean_first=clean_sync)
-            
-            if not sync_result['success']:
-                print(f"❌ Document sync failed: {sync_result['message']}")
-                # Still try to stop the sync job
-                print(f"\n🛑 Step 3 of 4: Stopping sync job due to errors...")
-                stop_result = connector.stop_qbusiness_sync(execution_id)
-                return 1
-            
-            print(f"✅ Document sync completed successfully")
-            print(f"   Processed: {sync_result['stats']['processed_issues']} issues")
-            print(f"   Uploaded: {sync_result['stats']['uploaded_documents']} documents")
-            
-            if sync_result['stats'].get('cached_documents', 0) > 0:
-                print(f"   Cached: {sync_result['stats']['cached_documents']} unchanged documents")
-            
-            if sync_result['stats'].get('deleted_documents', 0) > 0:
-                print(f"   Deleted: {sync_result['stats']['deleted_documents']} old documents")
-        
-        # Step 3: Stop the sync job
-        print(f"\n🏁 Step 3 of 4: Stopping Q Business sync job...")
-        
-        if not dry_run:
+            print(f"❌ ACL sync failed: {acl_result.get('message', 'Unknown error')}")
+            print("   Cannot proceed with document sync without proper ACL setup")
+            # Stop the sync job and return error
+            print(f"\n🛑 Step 4 of 5: Stopping sync job due to ACL sync failure...")
             stop_result = connector.stop_qbusiness_sync(execution_id)
-            
-            if stop_result['success']:
-                print(f"✅ Sync job stopped successfully")
-            else:
-                print(f"⚠️  Warning: Failed to stop sync job: {stop_result['message']}")
-                print("   The sync job may continue running in the background")
-        else:
-            print("✅ Dry run: Would stop sync job here")
+            return 1
         
-        # Step 4: Completion
-        print(f"\n🎯 Step 4 of 4: Sync completed successfully!")
+        # Step 3: Sync Jira documents (after ACL is properly set up)
+        print(f"\n📄 Step 3 of 5: Syncing Jira issues to Q Business...")
         
-        if not dry_run:
-            print(f"   Execution ID: {execution_id}")
-            print(f"   💡 Check sync status with: jira-q-connector status --execution-id {execution_id}")
+        # Real sync with execution ID (only if ACL sync was successful)
+        sync_result = connector.sync_issues_with_execution_id(execution_id, clean_first=clean_sync)
+        
+        if not sync_result['success']:
+            print(f"❌ Document sync failed: {sync_result['message']}")
+            # Still try to stop the sync job
+            print(f"\n🛑 Step 4 of 5: Stopping sync job due to errors...")
+            stop_result = connector.stop_qbusiness_sync(execution_id)
+            return 1
+        
+        print(f"✅ Document sync completed successfully")
+        print(f"   Processed: {sync_result['stats']['processed_issues']} issues")
+        print(f"   Uploaded: {sync_result['stats']['uploaded_documents']} documents")
+        
+        if sync_result['stats'].get('deleted_documents', 0) > 0:
+            print(f"   Deleted: {sync_result['stats']['deleted_documents']} old documents")
+        
+        # Step 4: Stop the sync job
+        print(f"\n🏁 Step 4 of 5: Stopping Q Business sync job...")
+        
+        stop_result = connector.stop_qbusiness_sync(execution_id)
+        
+        if stop_result['success']:
+            print(f"✅ Sync job stopped successfully")
         else:
-            print("   Dry run completed - no actual sync job was executed")
+            print(f"⚠️  Warning: Failed to stop sync job: {stop_result['message']}")
+            print("   The sync job may continue running in the background")
+        
+        # Step 5: Completion
+        print(f"\n🎯 Step 5 of 5: Sync completed successfully!")
+        
+        print(f"   Execution ID: {execution_id}")
+        print(f"   💡 Check sync status with: jira-q-connector status --execution-id {execution_id}")
         
         print(f"\n🎉 Complete sync workflow finished successfully!")
         return 0
         
     except KeyboardInterrupt:
         print(f"\n🛑 Sync interrupted by user")
-        if not dry_run and 'execution_id' in locals():
+        if 'execution_id' in locals():
             print(f"🔧 Attempting to stop sync job {execution_id}...")
             try:
                 connector.stop_qbusiness_sync(execution_id)
@@ -237,7 +244,7 @@ def cmd_full_sync(args, connector):
         return 130
     except Exception as e:
         print(f"❌ Unexpected error during sync: {e}")
-        if not dry_run and 'execution_id' in locals():
+        if 'execution_id' in locals():
             print(f"🔧 Attempting to stop sync job {execution_id}...")
             try:
                 connector.stop_qbusiness_sync(execution_id)
@@ -246,35 +253,72 @@ def cmd_full_sync(args, connector):
         return 1
 
 
-def cmd_cache(args, connector):
-    """Cache management commands"""
-    action = args.action
-    
-    if action == 'stats':
-        print("📊 Cache Statistics:")
-        result = connector.get_cache_stats()
-        
-        if result['success']:
-            print(f"   Table: {result['table_name']}")
-            print(f"   Entries: {result['item_count']} documents")
+
+def cmd_stop(args, connector):
+    """Stop a running Q Business sync job"""
+    try:
+        if args.execution_id:
+            # Stop specific sync job
+            execution_id = args.execution_id
+            print(f"🛑 Stopping Q Business sync job: {execution_id}")
+            
+            result = connector.stop_qbusiness_sync(execution_id)
+            
+            if result['success']:
+                print(f"✅ Sync job stopped successfully")
+                print(f"   Execution ID: {execution_id}")
+                return 0
+            else:
+                print(f"❌ Failed to stop sync job: {result['message']}")
+                return 1
+                
         else:
-            print(f"   {result['message']}")
-        
-        return 0 if result['success'] else 1
-        
-    elif action == 'clear':
-        print("🧹 Clearing cache...")
-        result = connector.clear_cache()
-        
-        if result['success']:
-            print(f"✅ Cleared {result.get('deleted', 0)} cache entries")
-        else:
-            print(f"❌ Failed to clear cache: {result['message']}")
-        
-        return 0 if result['success'] else 1
-    
-    else:
-        print(f"❌ Unknown cache action: {action}")
+            # Find and stop the latest running sync job
+            print("🔍 Looking for running sync jobs to stop...")
+            
+            list_result = connector.qbusiness_client.list_data_source_sync_jobs(max_results=10)
+            
+            if not list_result['success']:
+                print(f"❌ Failed to list sync jobs: {list_result['message']}")
+                return 1
+            
+            jobs = list_result.get('sync_jobs', [])
+            running_jobs = [job for job in jobs if job.get('status') in ['RUNNING', 'STOPPING']]
+            
+            if not running_jobs:
+                print_info("No running sync jobs found")
+                return 0
+            
+            if len(running_jobs) == 1:
+                # Stop the single running job
+                job = running_jobs[0]
+                execution_id = job.get('executionId')
+                status = job.get('status')
+                
+                print(f"🛑 Stopping {status.lower()} sync job: {execution_id}")
+                
+                result = connector.stop_qbusiness_sync(execution_id)
+                
+                if result['success']:
+                    print(f"✅ Sync job stopped successfully")
+                    return 0
+                else:
+                    print(f"❌ Failed to stop sync job: {result['message']}")
+                    return 1
+            else:
+                # Multiple running jobs - show them and ask user to specify
+                print(f"🔄 Found {len(running_jobs)} running sync jobs:")
+                for job in running_jobs:
+                    execution_id = job.get('executionId', 'Unknown')
+                    status = job.get('status', 'Unknown')
+                    start_time = job.get('startTime', 'Unknown')
+                    print(f"   🔄 {execution_id} | {status} | {start_time}")
+                
+                print(f"\n💡 Specify which job to stop: jira-q-connector stop --execution-id <id>")
+                return 1
+                
+    except Exception as e:
+        print(f"❌ Error stopping sync job: {e}")
         return 1
 
 
@@ -294,11 +338,8 @@ Examples:
   # Clean sync (delete duplicates, then upload)
   jira-q-connector sync --clean
   
-  # Cached sync (skip unchanged documents)
-  jira-q-connector sync --cache
-  
-  # Dry run sync (preview only)
-  jira-q-connector sync --dry-run
+  # Debug mode with detailed logging
+  jira-q-connector sync --debug
   
   # Check recent sync jobs
   jira-q-connector status
@@ -306,27 +347,26 @@ Examples:
   # Check specific sync job status
   jira-q-connector status --execution-id <id>
   
-  # Cache management
-  jira-q-connector cache stats
-  jira-q-connector cache clear
+  # Stop running sync jobs
+  jira-q-connector stop
+  jira-q-connector stop --execution-id <id>
 
 Environment Variables:
-  JIRA_SERVER_URL     - Jira server URL (required)
-  JIRA_USERNAME       - Jira username (required)
-  JIRA_PASSWORD       - Jira password/token (required)
-  Q_APPLICATION_ID    - Q Business application ID (required)
-  Q_DATA_SOURCE_ID    - Q Business data source ID (required)
-  Q_INDEX_ID          - Q Business index ID (required)
-  AWS_REGION          - AWS region (default: us-east-1)
-  SYNC_MODE           - Sync mode: full or incremental (default: full)
-  BATCH_SIZE          - Batch size for processing (default: 10)
-  INCLUDE_COMMENTS    - Include issue comments (default: true)
-  INCLUDE_HISTORY     - Include change history (default: false)
-  PROJECTS            - Comma-separated project keys to sync
-  ISSUE_TYPES         - Comma-separated issue types to sync
-  JQL_FILTER          - Custom JQL filter
-  ENABLE_CACHE        - Enable DynamoDB caching (default: false)
-  CACHE_TABLE_NAME    - DynamoDB table name for caching (required if caching enabled)
+  JIRA_SERVER_URL      - Jira server URL (required)
+  JIRA_USERNAME        - Jira username (required)
+  JIRA_PASSWORD        - Jira password or API token (required)
+  Q_APPLICATION_ID     - Q Business application ID (required)
+  Q_DATA_SOURCE_ID     - Q Business data source ID (required)
+  Q_INDEX_ID           - Q Business index ID (required)
+  
+  AWS_REGION           - AWS region (default: us-east-1)
+  BATCH_SIZE           - Documents per batch (default: 10)
+  INCLUDE_COMMENTS     - Include issue comments (default: true)
+  INCLUDE_HISTORY      - Include change history (default: false)
+  
+  PROJECTS             - Comma-separated project keys to sync
+  ISSUE_TYPES          - Comma-separated issue types to sync
+  JQL_FILTER           - Custom JQL filter for issue selection
         """
     )
     
@@ -337,6 +377,12 @@ Environment Variables:
         help="Log level (default: INFO)"
     )
     
+    parser.add_argument(
+        "--debug", "-d",
+        action="store_true",
+        help="Enable debug mode (equivalent to --log-level DEBUG)"
+    )
+
     # Subcommands
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
@@ -350,30 +396,20 @@ Environment Variables:
         help='Sync job execution ID (optional - shows recent jobs if omitted)'
     )
     
-    # Full sync command (new)
-    full_sync_parser = subparsers.add_parser('sync', help='Complete sync: Jira to Q Business with proper sync job lifecycle')
-    full_sync_parser.add_argument(
-        '--dry-run', 
-        action='store_true',
-        help='Preview sync without uploading documents'
-    )
-    full_sync_parser.add_argument(
+    # Sync command (new)
+    sync_parser = subparsers.add_parser('sync', help='Sync Jira issues to Q Business')
+    sync_parser.add_argument(
         '--clean',
         action='store_true',
         help='Delete all existing documents before syncing (full refresh)'
     )
-    full_sync_parser.add_argument(
-        '--cache',
-        action='store_true',
-        help='Enable DynamoDB caching to skip unchanged documents'
-    )
+
     
-    # Cache management command
-    cache_parser = subparsers.add_parser('cache', help='Manage DynamoDB cache')
-    cache_parser.add_argument(
-        'action',
-        choices=['stats', 'clear'],
-        help='Cache action: stats (show statistics) or clear (clear all entries)'
+    # Stop command
+    stop_parser = subparsers.add_parser('stop', help='Stop a running Q Business sync job')
+    stop_parser.add_argument(
+        '--execution-id',
+        help='Sync job execution ID (optional - stops specific job if provided, otherwise stops latest running job)'
     )
     
     args = parser.parse_args()
@@ -382,8 +418,11 @@ Environment Variables:
         parser.print_help()
         return 1
     
+    # Determine log level: --debug flag overrides --log-level
+    log_level = "DEBUG" if args.debug else args.log_level
+    
     # Setup logging
-    setup_logging(args.log_level)
+    setup_logging(log_level)
     
     try:
         # Import here to avoid circular imports
@@ -391,7 +430,17 @@ Environment Variables:
         from .jira_connector import JiraQBusinessConnector
         
         # Load configuration from environment
-        config = ConnectorConfig.from_env()
+        try:
+            config = ConnectorConfig.from_env()
+        except ValueError as e:
+            print(f"\n❌ Configuration Error: {e}")
+            print("\n🔧 Quick Setup:")
+            print("   1. Copy env.example to .env:")
+            print("      cp env.example .env")
+            print("   2. Edit .env file with your Jira and Q Business settings")
+            print("   3. Run the command again")
+            print("\n📖 See README.md for detailed configuration instructions")
+            return 1
         
         # Create connector
         connector = JiraQBusinessConnector(config)
@@ -401,7 +450,7 @@ Environment Variables:
             'doctor': cmd_doctor,
             'status': cmd_status,
             'sync': cmd_full_sync,
-            'cache': cmd_cache
+            'stop': cmd_stop
         }
         
         exit_code = command_functions[args.command](args, connector)
@@ -416,7 +465,7 @@ Environment Variables:
         return 130
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        if args.log_level == "DEBUG":
+        if log_level == "DEBUG":
             import traceback
             traceback.print_exc()
         return 1

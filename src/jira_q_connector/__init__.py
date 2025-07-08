@@ -1,19 +1,10 @@
 """
-Jira On-Premises Custom Connector for Amazon Q Business
-
-A comprehensive Python-based custom connector that synchronizes 
-Jira on-premises server with Amazon Q Business.
+Jira Q Business Connector package
 """
+__version__ = "0.1.0"
 
-__version__ = "1.0.0"
-__author__ = "Jira Q Business Connector Team"
-
-from .config import ConnectorConfig
+# Import main classes for easier access
+from .config import ConnectorConfig, JiraConfig, AWSConfig, QBusinessConfig
 from .jira_connector import JiraQBusinessConnector
-from .cache_client import CacheClient
-
-__all__ = [
-    "ConnectorConfig",
-    "JiraQBusinessConnector",
-    "CacheClient",
-] 
+from .jira_client import JiraClient
+from .acl_manager import ACLManager

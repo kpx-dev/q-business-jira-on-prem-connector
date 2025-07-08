@@ -63,7 +63,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 ENTRYPOINT ["jira-q-connector"]
 
 # Default command (can be overridden)
-CMD ["sync", "--cache"]
+CMD ["sync"]
 
 # Metadata labels
 LABEL maintainer="Jira Q Business Connector Team" \

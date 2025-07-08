@@ -1,370 +1,343 @@
 """
-Main Jira Custom Connector for Amazon Q Business
+Jira Q Business Connector for syncing Jira issues to Amazon Q Business
 """
 import logging
-import time
-from typing import Dict, List, Any
-from datetime import datetime, timedelta
+import json
+from datetime import datetime
+from typing import Dict, List, Any, Optional
 
-from .config import ConnectorConfig
 from .jira_client import JiraClient
-from .document_processor import JiraDocumentProcessor
-from .qbusiness_client import QBusinessClient
-from .cache_client import CacheClient
+from .acl_manager import ACLManager
 
 logger = logging.getLogger(__name__)
 
-
 class JiraQBusinessConnector:
-    """Main connector class for syncing Jira to Q Business"""
+    """
+    Connector for syncing Jira issues to Amazon Q Business
     
-    def __init__(self, config: ConnectorConfig):
+    This class handles the synchronization of Jira issues to Amazon Q Business,
+    including document creation, ACL synchronization, and sync job management.
+    """
+    
+    def __init__(self, config):
+        """
+        Initialize the connector
+        
+        Args:
+            config: Configuration object with Jira and Q Business settings
+        """
         self.config = config
         self.jira_client = JiraClient(config.jira)
-        self.qbusiness_client = QBusinessClient(config.aws)
-        self.document_processor = JiraDocumentProcessor(
-            include_comments=config.include_comments,
-            include_history=config.include_history
-        )
         
-        # Initialize cache client if enabled
-        self.cache_client = None
-        if config.enable_cache:
-            self.cache_client = CacheClient(config.aws)
+        # Initialize ACL manager (always enabled)
+        self.acl_manager = ACLManager()
+    
         
-        # Sync state
-        self.sync_stats = {
-            'total_issues': 0,
-            'processed_issues': 0,
-            'uploaded_documents': 0,
-            'failed_documents': 0,
-            'cached_documents': 0,  # Number of documents skipped due to cache
-            'start_time': None,
-            'end_time': None,
-            'errors': []
-        }
+        # Initialize Q Business client
+        from .qbusiness_client import QBusinessClient
+        self.qbusiness_client = QBusinessClient(config.aws, config.qbusiness)
     
     def test_connections(self) -> Dict[str, Any]:
-        """Test connections to both Jira and Q Business"""
-        results = {
-            'jira': None,
-            'qbusiness': None,
-            'overall_success': False
-        }
+        """
+        Test connections to Jira and Q Business
         
+        Returns:
+            Dictionary with test results
+        """
         # Test Jira connection
-        logger.info("Testing Jira connection...")
         jira_result = self.jira_client.test_connection()
-        results['jira'] = jira_result
-        
-        if jira_result['success']:
-            logger.info(f"✓ Jira: {jira_result['message']}")
-        else:
-            logger.error(f"✗ Jira: {jira_result['message']}")
         
         # Test Q Business connection
-        logger.info("Testing Q Business connection...")
-        qb_result = self.qbusiness_client.test_connection()
-        results['qbusiness'] = qb_result
+        qbusiness_result = self.qbusiness_client.test_connection()
         
-        if qb_result['success']:
-            logger.info(f"✓ Q Business: {qb_result['message']}")
-        else:
-            logger.error(f"✗ Q Business: {qb_result['message']}")
+        # Overall success
+        overall_success = jira_result['success'] and qbusiness_result['success']
         
-        results['overall_success'] = jira_result['success'] and qb_result['success']
-        
-        return results
-    
-    def build_jql_query(self) -> str:
-        """Build JQL query based on configuration"""
-        conditions = []
-        
-        # Add project filter
-        if self.config.projects:
-            project_list = "', '".join(self.config.projects)
-            conditions.append(f"project in ('{project_list}')")
-        
-        # Add issue type filter
-        if self.config.issue_types:
-            type_list = "', '".join(self.config.issue_types)
-            conditions.append(f"issuetype in ('{type_list}')")
-        
-        # Add incremental sync filter
-        if self.config.sync_mode == 'incremental':
-            # For incremental sync, get issues updated in the last 24 hours
-            # In a real implementation, you'd store the last sync time
-            yesterday = datetime.now() - timedelta(days=1)
-            conditions.append(f"updated >= '{yesterday.strftime('%Y-%m-%d')}'")
-        
-        # Add custom JQL filter
-        if self.config.jql_filter:
-            conditions.append(f"({self.config.jql_filter})")
-        
-        # Combine conditions
-        if conditions:
-            jql = " AND ".join(conditions)
-        else:
-            jql = ""
-        
-        # Add ordering
-        jql += " ORDER BY updated DESC"
-        
-        logger.info(f"Built JQL query: {jql}")
-        return jql
-    
-
-    
-    def _get_issues_in_batches(self, jql_query: str):
-        """Generator that yields batches of issues"""
-        batch_size = self.config.batch_size
-        start_at = 0
-        
-        while True:
-            result = self.jira_client.search_issues(
-                jql=jql_query,
-                start_at=start_at,
-                max_results=batch_size
-            )
-            
-            issues = result.get('issues', [])
-            if not issues:
-                break
-            
-            yield issues
-            
-            # Check if we've retrieved all issues
-            total = result.get('total', 0)
-            if start_at + len(issues) >= total:
-                break
-            
-            start_at += batch_size
-    
-    def _build_sync_result(self, success: bool, message: str) -> Dict[str, Any]:
-        """Build sync result dictionary"""
         return {
-            'success': success,
-            'message': message,
-            'stats': self.sync_stats.copy(),
-            'config': {
-                'sync_mode': self.config.sync_mode,
-                'batch_size': self.config.batch_size,
-                'include_comments': self.config.include_comments,
-                'include_history': self.config.include_history,
-                'projects': self.config.projects,
-                'issue_types': self.config.issue_types,
-                'jql_filter': self.config.jql_filter
-            }
+            'overall_success': overall_success,
+            'jira': jira_result,
+            'qbusiness': qbusiness_result
         }
     
-
-    
-    def get_sync_job_status(self, execution_id: str) -> Dict[str, Any]:
-        """Get status of a Q Business sync job"""
-        return self.qbusiness_client.get_sync_job_by_id(execution_id)
-    
     def start_qbusiness_sync(self) -> Dict[str, Any]:
-        """Start a Q Business data source sync job"""
+        """
+        Start a Q Business data source sync job
+        
+        Returns:
+            Dictionary with sync job information
+        """
         return self.qbusiness_client.start_data_source_sync()
     
     def stop_qbusiness_sync(self, execution_id: str) -> Dict[str, Any]:
-        """Stop Q Business data source sync job"""
+        """
+        Stop a Q Business data source sync job
+        
+        Args:
+            execution_id: The execution ID of the sync job
+            
+        Returns:
+            Dictionary with sync job information
+        """
         return self.qbusiness_client.stop_data_source_sync(execution_id)
     
+    def get_sync_job_status(self, execution_id: str) -> Dict[str, Any]:
+        """
+        Get the status of a Q Business data source sync job
+        
+        Args:
+            execution_id: The execution ID of the sync job
+            
+        Returns:
+            Dictionary with sync job information
+        """
+        return self.qbusiness_client.get_data_source_sync_job(execution_id)
+    
     def clean_all_documents(self, execution_id: str) -> Dict[str, Any]:
-        """Clean all documents from this data source"""
-        return self.qbusiness_client.delete_all_data_source_documents(execution_id)
+        """
+        Clean all documents from Q Business
+        
+        Args:
+            execution_id: The execution ID of the sync job
+            
+        Returns:
+            Dictionary with clean results
+        """
+        logger.warning("Document cleaning is not implemented - skipping clean operation")
+        return {
+            'success': False,
+            'message': "Document cleaning is not implemented",
+            'deleted': 0
+        }
     
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics"""
-        if not self.cache_client or not self.cache_client.is_enabled():
-            return {'success': False, 'message': 'Cache not enabled'}
+    def sync_issues_with_execution_id(self, execution_id: str, clean_first: bool = False) -> Dict[str, Any]:
+        """
+        Sync Jira issues to Q Business with the given execution ID
         
-        return self.cache_client.get_cache_stats()
-    
-    def clear_cache(self) -> Dict[str, Any]:
-        """Clear the document cache"""
-        if not self.cache_client or not self.cache_client.is_enabled():
-            return {'success': False, 'message': 'Cache not enabled'}
-        
-        return self.cache_client.clear_cache()
-    
-    def sync_issues_with_execution_id(self, execution_id: str, dry_run: bool = False, clean_first: bool = False) -> Dict[str, Any]:
-        """Sync Jira issues to Q Business with execution ID (for proper custom connector workflow)"""
-        cache_enabled = self.cache_client and self.cache_client.is_enabled()
-        logger.info(f"Starting sync of Jira issues to Q Business with execution ID: {execution_id} (cache: {'enabled' if cache_enabled else 'disabled'})")
-        
-        self.sync_stats['start_time'] = datetime.now()
-        
+        Args:
+            execution_id: The execution ID of the sync job
+            clean_first: If True, clean all documents before syncing
+            
+        Returns:
+            Dictionary with sync results
+        """
         try:
-            # Ensure cache table exists if caching is enabled
-            if cache_enabled:
-                cache_setup = self.cache_client.ensure_table_exists()
-                if not cache_setup['success']:
-                    logger.warning(f"Cache setup failed: {cache_setup['message']}")
-                    cache_enabled = False
-            # Build JQL query
-            jql_query = self.build_jql_query()
+            logger.info(f"Starting sync of Jira issues with execution ID: {execution_id}")
             
-            # Get total count first
-            logger.info("Getting total issue count...")
-            initial_result = self.jira_client.search_issues(jql=jql_query, max_results=1)
-            total_issues = initial_result.get('total', 0)
+            # Initialize stats
+            stats = {
+                'processed_issues': 0,
+                'uploaded_documents': 0,
+                'deleted_documents': 0
+            }
             
-            if total_issues == 0:
-                logger.info("No issues found matching criteria")
-                return self._build_sync_result(success=True, message="No issues to sync")
+            # Build JQL query for filtering
+            jql_parts = []
             
-            logger.info(f"Found {total_issues} issues to sync")
-            self.sync_stats['total_issues'] = total_issues
+            # Add project filter if specified
+            if self.config.projects:
+                project_list = "','".join(self.config.projects)
+                jql_parts.append(f"project in ('{project_list}')")
             
-            # If clean_first is requested, collect all document IDs first and delete them
-            if clean_first and not dry_run:
-                logger.info("Collecting document IDs for deletion...")
-                all_document_ids = []
-                
-                # Get all issues to determine document IDs
-                for batch_issues in self._get_issues_in_batches(jql_query):
-                    for issue in batch_issues:
-                        key = issue.get('key', '')
-                        if key:
-                            doc_id = f"jira-issue-{key}"
-                            all_document_ids.append(doc_id)
-                
-                if all_document_ids:
-                    logger.info(f"Deleting {len(all_document_ids)} existing documents...")
-                    delete_result = self.qbusiness_client.batch_delete_documents(all_document_ids)
-                    
-                    if delete_result['success']:
-                        deleted_count = delete_result.get('deleted', 0)
-                        logger.info(f"Successfully deleted {deleted_count} existing documents")
-                        self.sync_stats['deleted_documents'] = deleted_count
-                    else:
-                        logger.warning(f"Failed to delete some documents: {delete_result['message']}")
-            elif clean_first and dry_run:
-                logger.info("DRY RUN: Would delete all existing documents before upload")
-                        
+            # Add issue type filter if specified
+            if self.config.issue_types:
+                issue_type_list = "','".join(self.config.issue_types)
+                jql_parts.append(f"issuetype in ('{issue_type_list}')")
+            
+            # Add custom JQL filter if specified
+            if self.config.jql_filter:
+                jql_parts.append(f"({self.config.jql_filter})")
+            
+            # Build final JQL query
+            if jql_parts:
+                jql_query = ' AND '.join(jql_parts)
+            else:
+                jql_query = ""
+            
+            # Add default ordering
+            if jql_query:
+                jql_query += " ORDER BY updated DESC"
+            else:
+                jql_query = "ORDER BY updated DESC"
+            
+            logger.info(f"Using JQL query: {jql_query}")
+            
+            # Initialize document processor
+            from .document_processor import JiraDocumentProcessor
+            doc_processor = JiraDocumentProcessor(
+                include_comments=self.config.include_comments,
+                include_history=self.config.include_history
+            )
+            
             # Process issues in batches
-            processed_count = 0
-            batch_count = 0
+            batch_size = min(self.config.batch_size, 10)
+            total_issues = 0
             
-            for batch_issues in self._get_issues_in_batches(jql_query):
-                batch_count += 1
-                batch_size = len(batch_issues)
-                logger.info(f"Processing batch {batch_count} ({batch_size} issues)")
+            # First, get total count for progress tracking
+            search_result = self.jira_client.search_issues(
+                jql=jql_query,
+                start_at=0,
+                max_results=1  # Just to get total count
+            )
+            total_available = search_result.get('total', 0)
+            logger.info(f"Found {total_available} total issues matching criteria")
+            
+            # Process all issues using iterator
+            issues_batch = []
+            
+            for issue in self.jira_client.get_all_issues_iterator(
+                jql=jql_query,
+                batch_size=100  # Fetch from Jira in larger batches
+            ):
+                issues_batch.append(issue)
+                total_issues += 1
                 
-                try:
-                    # Filter issues based on cache if enabled
-                    issues_to_sync = batch_issues
-                    if cache_enabled:
-                        # Check which issues actually need syncing
-                        issues_to_sync = []
-                        for issue in batch_issues:
-                            document_id = f"jira-issue-{issue.get('key', '')}"
-                            if self.cache_client.should_sync_document(document_id, issue):
-                                issues_to_sync.append(issue)
-                        
-                        cached_count = len(batch_issues) - len(issues_to_sync)
-                        self.sync_stats['cached_documents'] += cached_count
-                        
-                        if cached_count > 0:
-                            logger.info(f"Cache filtered: {cached_count} unchanged documents skipped, {len(issues_to_sync)} to sync")
+                # Process batch when it reaches the size limit
+                if len(issues_batch) >= batch_size:
+                    batch_stats = self._process_issues_batch(
+                        issues_batch, doc_processor, execution_id
+                    )
+                    stats['uploaded_documents'] += batch_stats['uploaded']
                     
-                    if not issues_to_sync:
-                        logger.info(f"Batch {batch_count}: All documents up-to-date (skipped)")
-                        processed_count += batch_size
-                        self.sync_stats['processed_issues'] = processed_count
-                        continue
+                    logger.info(f"Processed batch: {len(issues_batch)} issues, "
+                              f"uploaded: {batch_stats['uploaded']}")
                     
-                    # Convert issues to documents with execution ID
-                    documents = self.document_processor.create_batch_documents(issues_to_sync, execution_id)
-                    
-                    if not documents:
-                        logger.warning(f"No valid documents created from batch {batch_count}")
-                        continue
-                    
-                    if dry_run:
-                        logger.info(f"DRY RUN: Would upload {len(documents)} documents with execution ID {execution_id}")
-                        self.sync_stats['uploaded_documents'] += len(documents)
-                    else:
-                        # Upload to Q Business with execution ID
-                        upload_result = self.qbusiness_client.batch_put_documents_with_execution_id(documents, execution_id)
-                        
-                        if upload_result['success']:
-                            self.sync_stats['uploaded_documents'] += upload_result['processed']
-                            self.sync_stats['failed_documents'] += upload_result['failed']
-                            
-                            # Update cache for successfully uploaded documents
-                            if cache_enabled and upload_result['processed'] > 0:
-                                cache_updates = []
-                                for i, issue in enumerate(issues_to_sync):
-                                    # Only update cache for successfully processed documents
-                                    if i < upload_result['processed']:
-                                        document_id = f"jira-issue-{issue.get('key', '')}"
-                                        cache_updates.append({
-                                            'document_id': document_id,
-                                            'issue_data': issue,
-                                            'sync_status': 'success'
-                                        })
-                                
-                                if cache_updates:
-                                    self.cache_client.batch_update_cache(cache_updates)
-                            
-                            if upload_result['failed'] > 0:
-                                logger.warning(f"Batch {batch_count}: {upload_result['failed']} documents failed to upload")
-                        else:
-                            logger.error(f"Batch {batch_count} upload failed: {upload_result['message']}")
-                            self.sync_stats['errors'].append(f"Batch {batch_count}: {upload_result['message']}")
-                    
-                    processed_count += batch_size
-                    self.sync_stats['processed_issues'] = processed_count
-                    
-                    # Progress logging
-                    progress = (processed_count / total_issues) * 100
-                    logger.info(f"Progress: {processed_count}/{total_issues} ({progress:.1f}%)")
-                    
-                    # Rate limiting - be nice to Jira server
-                    time.sleep(0.5)
-                    
-                except Exception as e:
-                    logger.error(f"Error processing batch {batch_count}: {e}")
-                    self.sync_stats['errors'].append(f"Batch {batch_count}: {str(e)}")
-                    continue
+                    # Clear batch for next iteration
+                    issues_batch = []
             
-            self.sync_stats['end_time'] = datetime.now()
+            # Process remaining issues in the final batch
+            if issues_batch:
+                batch_stats = self._process_issues_batch(
+                    issues_batch, doc_processor, execution_id
+                )
+                stats['uploaded_documents'] += batch_stats['uploaded']
+                
+                logger.info(f"Processed final batch: {len(issues_batch)} issues, "
+                          f"uploaded: {batch_stats['uploaded']}")
             
-            # Build result
-            success = len(self.sync_stats['errors']) == 0
-            duration = (self.sync_stats['end_time'] - self.sync_stats['start_time']).total_seconds()
+            stats['processed_issues'] = total_issues
             
-            message = (f"Sync with execution ID completed in {duration:.1f}s. "
-                      f"Processed: {self.sync_stats['processed_issues']}/{self.sync_stats['total_issues']} issues, "
-                      f"Uploaded: {self.sync_stats['uploaded_documents']} documents")
+            logger.info(f"Sync completed successfully. Processed {total_issues} issues, "
+                      f"uploaded {stats['uploaded_documents']} documents")
             
-            if self.sync_stats.get('cached_documents', 0) > 0:
-                message += f", Cached: {self.sync_stats['cached_documents']} unchanged documents"
-            
-            if self.sync_stats.get('deleted_documents', 0) > 0:
-                message += f", Deleted: {self.sync_stats['deleted_documents']} old documents"
-            
-            if self.sync_stats['failed_documents'] > 0:
-                message += f", Failed: {self.sync_stats['failed_documents']} documents"
-            
-            if self.sync_stats['errors']:
-                message += f", Errors: {len(self.sync_stats['errors'])}"
-            
-            logger.info(message)
-            return self._build_sync_result(success=success, message=message)
+            return {
+                'success': True,
+                'message': "Issues synced successfully",
+                'stats': stats
+            }
             
         except Exception as e:
-            logger.error(f"Sync with execution ID failed: {e}")
-            self.sync_stats['end_time'] = datetime.now()
-            self.sync_stats['errors'].append(str(e))
-            return self._build_sync_result(success=False, message=f"Sync failed: {e}")
+            logger.error(f"Error syncing issues: {e}")
+            return {
+                'success': False,
+                'message': f"Failed to sync issues: {e}",
+                'stats': stats if 'stats' in locals() else {
+                    'processed_issues': 0,
+                    'uploaded_documents': 0,
+                    'deleted_documents': 0
+                }
+            }
+    
+    def _process_issues_batch(self, issues: List[Dict[str, Any]], doc_processor, execution_id: str) -> Dict[str, int]:
+        """
+        Process a batch of issues and upload to Q Business
+        
+        Args:
+            issues: List of Jira issues to process
+            doc_processor: Document processor instance
+            execution_id: Q Business sync job execution ID
+            
+        Returns:
+            Dictionary with batch processing stats
+        """
+        stats = {'uploaded': 0}
+        
+        if not issues:
+            return stats
+        
+        try:
+            # Convert issues to Q Business documents
+            documents = []
+            
+            for issue in issues:
+                try:
+                    # Process issue to Q Business document
+                    doc = doc_processor.process_issue(issue, execution_id)
+                    if doc:
+                        # Add ACL information to the document
+                        acl_info = self.acl_manager.get_document_acl(issue, jira_client=self.jira_client)
+                        if acl_info:
+                            doc.update(acl_info)
+                        
+                        documents.append(doc)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process issue {issue.get('key', 'unknown')}: {e}")
+                    continue
+            
+            # Upload documents to Q Business
+            if documents:
+                upload_result = self.qbusiness_client.batch_put_documents_with_execution_id(
+                    documents, execution_id
+                )
+                
+                if upload_result['success']:
+                    stats['uploaded'] = len(documents)
+                else:
+                    logger.error(f"Failed to upload batch: {upload_result['message']}")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error processing batch: {e}")
+            return stats
+    
+    def sync_acl_with_execution_id(self, execution_id: str) -> Dict[str, Any]:
+        """
+        Synchronize ACL information with Q Business User Store
+        
+        Args:
+            execution_id: The execution ID of the sync job
+            
+        Returns:
+            Dictionary with sync results
+        """
+        try:
+            logger.info(f"Starting comprehensive ACL synchronization with execution ID: {execution_id}")
+            
+            # ACL is always enabled now, but check if acl_manager exists
+            if not hasattr(self, 'acl_manager') or self.acl_manager is None:
+                logger.warning("ACL manager not initialized - this should not happen")
+                return {
+                    'success': False,
+                    'message': "ACL manager not initialized",
+                    'stats': {'users': 0, 'groups': 0, 'memberships': 0}
+                }
+            
+            # Use the new comprehensive ACL sync method
+            result = self.acl_manager.sync_jira_acl_to_qbusiness(self.jira_client, self.qbusiness_client)
+            
+            # Transform stats format for backward compatibility
+            if result.get('success') and 'stats' in result:
+                original_stats = result['stats']
+                transformed_stats = {
+                    'users': original_stats.get('users_processed', 0),
+                    'groups': original_stats.get('groups_processed', 0),
+                    'memberships': original_stats.get('projects_processed', 0)  # Use projects as memberships proxy
+                }
+                result['stats'] = transformed_stats
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing ACL information: {e}")
+            return {
+                'success': False,
+                'message': f"Failed to synchronize ACL information: {e}",
+                'stats': {'users': 0, 'groups': 0, 'memberships': 0}
+            }
+
     
     def cleanup(self):
-        """Cleanup resources"""
+        """Clean up resources"""
         if hasattr(self, 'jira_client'):
             self.jira_client.close()
-        
-        logger.info("Connector cleanup completed") 
