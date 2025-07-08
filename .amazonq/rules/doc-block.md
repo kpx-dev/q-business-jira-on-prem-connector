@@ -1,1 +1,0 @@
-When generate new code, always have proper doc block with comment

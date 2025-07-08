@@ -3,7 +3,6 @@ ACL Manager for handling access control lists for Jira documents in Amazon Q Bus
 """
 import logging
 from typing import Dict, List, Any, Optional, Set
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -115,33 +114,7 @@ class ACLManager:
                     logger.error(f"Error processing project {project.get('key', 'unknown')}: {e}")
                     continue
             
-            # Step 3: Sync groups to Q Business (DISABLED)
-            # logger.info(f"Syncing {len(all_groups)} groups to Q Business")
-            # for group_name, group_info in all_groups.items():
-            #     try:
-            #         # Prepare group members for Q Business format
-            #         group_members = {
-            #             'memberUsers': [
-            #                 {
-            #                     'userId': user_email,
-            #                     'type': 'DATASOURCE'
-            #                 }
-            #                 for user_email in group_info['members']
-            #             ]
-            #         }
-            #         
-            #         # Create/update group in Q Business
-            #         result = qbusiness_client.put_group(group_name, group_members)
-            #         if result['success']:
-            #             stats['groups_processed'] += 1
-            #             logger.debug(f"Successfully synced group: {group_name}")
-            #         else:
-            #             logger.warning(f"Failed to sync group {group_name}: {result['message']}")
-            #             
-            #     except Exception as e:
-            #         logger.error(f"Error syncing group {group_name}: {e}")
-            #         continue
-            
+            # Step 3: Group synchronization disabled to avoid Q Business group version limits
             logger.info("Group synchronization is disabled to avoid Q Business group version limits")
             stats['groups_processed'] = len(all_groups)  # Report discovered groups but don't sync them
             
@@ -450,19 +423,3 @@ class ACLManager:
             logger.warning(f"Error expanding group {group_name} to users: {e}")
             # Continue without this group's members
 
-    # Keep the existing method for backward compatibility
-    def get_principal_store_entries(self, jira_client) -> List[Dict[str, Any]]:
-        """
-        Generate principal store entries for Amazon Q Business User Store
-        
-        This method is kept for backward compatibility but the new
-        sync_jira_acl_to_qbusiness method should be used instead.
-        
-        Args:
-            jira_client: Jira client instance to fetch users and groups
-            
-        Returns:
-            List of principal store entries in the format required by Amazon Q Business
-        """        
-        logger.warning("get_principal_store_entries is deprecated, use sync_jira_acl_to_qbusiness instead")
-        return []

@@ -369,40 +369,7 @@ class JiraClient:
             logger.error(f"Error getting projects: {e}")
             return []
 
-    def get_all_security_levels(self) -> List[Dict[str, Any]]:
-        """
-        Get all issue security levels from Jira
-        
-        Returns:
-            List of security level objects
-        """
-        try:
-            # First get all security schemes
-            response = self._make_request('GET', 'issuesecurityschemes')
-            schemes = response.json().get('issueSecuritySchemes', [])
-            
-            security_levels = []
-            
-            # For each scheme, get its security levels
-            for scheme in schemes:
-                scheme_id = scheme.get('id')
-                if scheme_id:
-                    scheme_response = self._make_request('GET', f'issuesecurityschemes/{scheme_id}')
-                    scheme_details = scheme_response.json()
-                    
-                    # Extract security levels
-                    levels = scheme_details.get('levels', [])
-                    for level in levels:
-                        level['schemeId'] = scheme_id
-                        level['schemeName'] = scheme.get('name')
-                    
-                    security_levels.extend(levels)
-            
-            logger.info(f"Retrieved {len(security_levels)} security levels from {len(schemes)} schemes")
-            return security_levels
-        except Exception as e:
-            logger.error(f"Error getting security levels: {e}")
-            return []
+
 
     def get_group_members(self, group_name: str, include_inactive: bool = False) -> List[Dict[str, Any]]:
         """
@@ -639,37 +606,7 @@ class JiraClient:
             logger.error(f"Error getting members for role {role_id} in project {project_key}: {e}")
             return {'users': [], 'groups': []}
 
-    def get_users_with_security_level_access(self, security_id: str) -> List[Dict[str, Any]]:
-        """
-        Get users with access to a security level
-        
-        Note: This is a stub implementation. Security level permissions
-        require specific Jira configuration and APIs not implemented yet.
-        
-        Args:
-            security_id: Security level ID
-            
-        Returns:
-            Empty list (stub implementation)
-        """
-        logger.debug(f"Security level access not implemented for level {security_id}")
-        return []
 
-    def get_groups_with_security_level_access(self, security_id: str) -> List[Dict[str, Any]]:
-        """
-        Get groups with access to a security level
-        
-        Note: This is a stub implementation. Security level permissions
-        require specific Jira configuration and APIs not implemented yet.
-        
-        Args:
-            security_id: Security level ID
-            
-        Returns:
-            Empty list (stub implementation)
-        """
-        logger.debug(f"Security level access not implemented for level {security_id}")
-        return []
 
     def get_project_permission_scheme(self, project_key: str) -> Dict[str, Any]:
         """
