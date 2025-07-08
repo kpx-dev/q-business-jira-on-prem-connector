@@ -30,13 +30,14 @@ class QBusinessConfig:
 
 @dataclass
 class ConnectorConfig:
-    """Connector configuration"""
+    """Configuration for the Jira Q Business Connector"""
+    
+    # Component configurations
     jira: JiraConfig
     aws: AWSConfig
     qbusiness: QBusinessConfig
     
     # Sync options
-    sync_mode: str = "full"
     batch_size: int = 10
     include_comments: bool = True
     include_history: bool = False
@@ -102,7 +103,6 @@ class ConnectorConfig:
             qbusiness=qbusiness_config,
             
             # Sync options
-            sync_mode=os.environ.get("SYNC_MODE", "full"),
             batch_size=int(os.environ.get("BATCH_SIZE", "10")),
             include_comments=os.environ.get("INCLUDE_COMMENTS", "true").lower() == "true",
             include_history=os.environ.get("INCLUDE_HISTORY", "false").lower() == "true",

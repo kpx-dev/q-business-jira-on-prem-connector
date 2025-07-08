@@ -2,9 +2,20 @@
 Amazon Q Business Client for interacting with the Q Business API
 """
 import logging
+import json
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles datetime objects"""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
 
 class QBusinessClient:
     """Client for interacting with Amazon Q Business API"""
@@ -205,6 +216,22 @@ class QBusinessClient:
             
             # Upload documents
             logger.info(f"Uploading {len(documents)} documents to Q Business...")
+            
+            # Debug: Show the complete API payload when in debug mode
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Q Business API call details:")
+                logger.debug(f"  Application ID: {self.qbusiness_config.application_id}")
+                logger.debug(f"  Index ID: {self.qbusiness_config.index_id}")
+                logger.debug(f"  Data Source Sync ID: {execution_id}")
+                logger.debug(f"  Document count: {len(documents)}")
+                
+                # Log each document structure (with full content for debugging)
+                for i, doc in enumerate(documents):
+                    logger.debug(f"Document {i+1} API payload:")
+                    doc_copy = doc.copy()
+                    # Show actual content for debugging (don't truncate)
+                    logger.debug(f"  {json.dumps(doc_copy, indent=4, cls=DateTimeEncoder)}")
+            
             response = self.client.batch_put_document(
                 applicationId=self.qbusiness_config.application_id,
                 indexId=self.qbusiness_config.index_id,
@@ -342,9 +369,9 @@ class QBusinessClient:
                         users_processed += 1
                         
                     elif principal_type == 'GROUP':
-                        # Use put_group for groups 
-                        self._create_or_update_group(principal)
-                        groups_processed += 1
+                        # Skip group creation/updating to avoid Q Business group version limits
+                        logger.info(f"Skipping group creation for {principal_id} (group sync disabled)")
+                        groups_processed += 1  # Count as processed but don't actually create
                         
                     else:
                         logger.warning(f"Unknown principal type: {principal_type}")

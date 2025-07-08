@@ -2,6 +2,8 @@
 Jira Q Business Connector for syncing Jira issues to Amazon Q Business
 """
 import logging
+import json
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from .jira_client import JiraClient
@@ -107,13 +109,12 @@ class JiraQBusinessConnector:
             'deleted': 0
         }
     
-    def sync_issues_with_execution_id(self, execution_id: str, dry_run: bool = False, clean_first: bool = False) -> Dict[str, Any]:
+    def sync_issues_with_execution_id(self, execution_id: str, clean_first: bool = False) -> Dict[str, Any]:
         """
         Sync Jira issues to Q Business with the given execution ID
         
         Args:
             execution_id: The execution ID of the sync job
-            dry_run: If True, don't actually upload documents
             clean_first: If True, clean all documents before syncing
             
         Returns:
@@ -168,7 +169,7 @@ class JiraQBusinessConnector:
             )
             
             # Process issues in batches
-            batch_size = min(self.config.batch_size, 10)  # AWS Q Business limit is 10
+            batch_size = min(self.config.batch_size, 10)
             total_issues = 0
             
             # First, get total count for progress tracking
@@ -193,7 +194,7 @@ class JiraQBusinessConnector:
                 # Process batch when it reaches the size limit
                 if len(issues_batch) >= batch_size:
                     batch_stats = self._process_issues_batch(
-                        issues_batch, doc_processor, execution_id, dry_run
+                        issues_batch, doc_processor, execution_id
                     )
                     stats['uploaded_documents'] += batch_stats['uploaded']
                     
@@ -206,7 +207,7 @@ class JiraQBusinessConnector:
             # Process remaining issues in the final batch
             if issues_batch:
                 batch_stats = self._process_issues_batch(
-                    issues_batch, doc_processor, execution_id, dry_run
+                    issues_batch, doc_processor, execution_id
                 )
                 stats['uploaded_documents'] += batch_stats['uploaded']
                 
@@ -236,7 +237,7 @@ class JiraQBusinessConnector:
                 }
             }
     
-    def _process_issues_batch(self, issues: List[Dict[str, Any]], doc_processor, execution_id: str, dry_run: bool) -> Dict[str, int]:
+    def _process_issues_batch(self, issues: List[Dict[str, Any]], doc_processor, execution_id: str) -> Dict[str, int]:
         """
         Process a batch of issues and upload to Q Business
         
@@ -244,7 +245,6 @@ class JiraQBusinessConnector:
             issues: List of Jira issues to process
             doc_processor: Document processor instance
             execution_id: Q Business sync job execution ID
-            dry_run: If True, don't actually upload
             
         Returns:
             Dictionary with batch processing stats
@@ -274,8 +274,8 @@ class JiraQBusinessConnector:
                     logger.error(f"Failed to process issue {issue.get('key', 'unknown')}: {e}")
                     continue
             
-            # Upload documents to Q Business if not dry run
-            if documents and not dry_run:
+            # Upload documents to Q Business
+            if documents:
                 upload_result = self.qbusiness_client.batch_put_documents_with_execution_id(
                     documents, execution_id
                 )
@@ -284,9 +284,6 @@ class JiraQBusinessConnector:
                     stats['uploaded'] = len(documents)
                 else:
                     logger.error(f"Failed to upload batch: {upload_result['message']}")
-            elif documents and dry_run:
-                stats['uploaded'] = len(documents)
-                logger.info(f"Dry run: Would upload {len(documents)} documents")
             
             return stats
             
