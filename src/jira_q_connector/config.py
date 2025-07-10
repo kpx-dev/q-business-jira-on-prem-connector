@@ -152,3 +152,18 @@ class ConnectorConfig:
         """Reload configuration from .env file (useful for development)"""
         print("🔄 Reloading configuration from .env file...")
         return cls.from_env()
+
+
+# Simplified loader function for backward compatibility
+def load_config():
+    """Load configuration from environment (simplified interface)"""
+    try:
+        return ConnectorConfig.from_env()
+    except ValueError as e:
+        print(f"❌ Configuration error: {e}")
+        print("\n🔧 Quick Setup:")
+        print("   1. Copy env.example to .env:")
+        print("      cp env.example .env")
+        print("   2. Edit .env with your Jira and Q Business settings")
+        print("   3. Run the command again")
+        raise
