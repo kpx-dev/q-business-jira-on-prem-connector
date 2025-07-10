@@ -130,54 +130,35 @@ class JiraClient:
         """Search for issues using JQL"""
         
         if fields is None:
-            # Get comprehensive fields for Q Business - includes all standard and common custom fields
+            # Optimized field list - essential fields only to reduce API overhead
             fields = [
-                # Core fields
+                # Core required fields
                 'key', 'id', 'self', 'summary', 'description', 'status', 'priority',
-                'assignee', 'reporter', 'creator', 'created', 'updated', 'duedate',
-                'resolutiondate', 'project', 'issuetype', 'resolution',
+                'assignee', 'reporter', 'created', 'updated', 'project', 'issuetype', 'resolution',
                 
-                # Content and metadata
-                'labels', 'components', 'versions', 'fixVersions', 'environment',
-                'comment', 'attachment', 'worklog', 'issuelinks', 'subtasks', 'parent',
+                # Essential content fields
+                'labels', 'components', 'fixVersions', 'environment',
+                'attachment', 'issuelinks', 'subtasks', 'parent',
                 
-                # Time tracking and progress
-                'timetracking', 'timeestimate', 'timeoriginalestimate', 'timespent',
-                'aggregatetimeestimate', 'aggregatetimeoriginalestimate', 'aggregatetimespent',
-                'progress', 'aggregateprogress', 'workratio',
+                # Time tracking (simplified)
+                'timetracking', 'duedate', 'resolutiondate',
                 
-                # Security and permissions
-                'security', 'watches', 'votes',
+                # Engagement metrics
+                'watches', 'votes',
                 
-                # Agile/Custom fields (common field IDs - may vary by Jira instance)
+                # Common Agile fields (most frequently used)
                 'customfield_10014',  # Epic Link
-                'customfield_10015',  # Acceptance Criteria
-                'customfield_10016',  # Story Points
-                'customfield_10017',  # Business Value
-                'customfield_10018',  # Risk
-                'customfield_10019',  # Epic Name
+                'customfield_10016',  # Story Points  
                 'customfield_10020',  # Sprint
                 'customfield_10021',  # Team
-                'customfield_10022',  # Epic Status
-                'customfield_10023',  # Epic Color
-                'customfield_10024',  # Rank
-                'customfield_10025',  # Request Type
-                'customfield_10026',  # Customer Request Type
-                'customfield_10027',  # Organizations
-                'customfield_10028',  # Request participants
-                'customfield_10029',  # Approvers
-                'customfield_10030',  # Epic Theme
                 
-                # Additional common custom fields (add more as needed)
-                'customfield_10031', 'customfield_10032', 'customfield_10033', 'customfield_10034',
-                'customfield_10035', 'customfield_10036', 'customfield_10037', 'customfield_10038',
-                'customfield_10039', 'customfield_10040', 'customfield_10041', 'customfield_10042',
-                'customfield_10043', 'customfield_10044', 'customfield_10045', 'customfield_10046',
-                'customfield_10047', 'customfield_10048', 'customfield_10049', 'customfield_10050'
+                # Include comments conditionally
+                'comment'
             ]
         
         if expand is None:
-            expand = ['changelog', 'names', 'schema', 'operations', 'editmeta', 'renderedFields']
+            # Simplified expand - only essential metadata
+            expand = ['names']
         
         params = {
             'jql': jql or 'order by updated DESC',
