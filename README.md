@@ -5,6 +5,7 @@ A Python-based custom connector that synchronizes Jira on-premises server with A
 ## How It Works:
 
 **🔄 Sync Process (jira-q-connector sync):**
+
 1. **Start Job** - Initialize Q Business data source sync with execution ID
 2. **Setup ACL** - Sync Jira users, groups, and permissions to Q Business User Store using comprehensive 4-step permission extraction
 3. **Extract Data** - Pull Jira issues via REST API v2 using JQL queries with 60+ fields
@@ -12,8 +13,9 @@ A Python-based custom connector that synchronizes Jira on-premises server with A
 5. **Complete** - Stop sync job and finalize the data source update
 
 **📄 Document Content:** Each Jira issue becomes a highly detailed searchable Q Business document with:
+
 - Issue summary, description, and key with full metadata
-- Comments (optional) and change history (optional)  
+- Comments (optional) and change history (optional)
 - Comprehensive metadata: status, priority, assignee, reporter, labels, components, versions, time tracking
 - All custom fields including Agile fields (Epic Link, Story Points, Sprint)
 - Attachment information, issue links, subtasks, and parent relationships
@@ -34,14 +36,16 @@ If you need to set up your own Jira instance for testing, follow these comprehen
 ### Step 1: Launch EC2 Instance
 
 **Instance Requirements:**
+
 - **Instance Type**: t3.medium or larger (minimum 4GB RAM)
-- **Operating System**: Amazon Linux 2 or Ubuntu 20.04+ 
+- **Operating System**: Amazon Linux 2 or Ubuntu 20.04+
 - **Storage**: 20GB+ EBS volume
 - **Security Group**: Configure ports as described below
 
 ### Step 2: Configure Security Group
 
 **Required Ports:**
+
 - **SSH (22)**: For server access
 - **HTTP (8080)**: Default Jira port
 - **HTTPS (8443)**: For SSL access (optional)
@@ -80,6 +84,7 @@ sudo ./atlassian-jira-software-9.17.5-x64.bin
 1. Open browser and navigate to: `http://your-ec2-public-ip:8080`
 
 **Configure API Access:**
+
 1. Go to Administration → System → General Configuration
 2. Enable "Accept remote API calls"
 3. Note the Base URL for your connector configuration
@@ -110,21 +115,24 @@ jira-q-connector sync
 ### Option 1: Install from Source (Recommended for Development)
 
 1. **Clone the repository:**
+
    ```bash
    git clone <repository-url>
    cd q-business-jira-on-prem-connector
    ```
 
 2. **Install in development mode:**
+
    ```bash
    pip install -e .
    ```
 
 3. **Set up configuration:**
+
    ```bash
    # Copy example environment file
    cp env.example .env
-   
+
    # Edit with your settings
    nano .env
    ```
@@ -146,7 +154,7 @@ Q_DATA_SOURCE_ID=your-q-data-source-id
 Q_INDEX_ID=your-q-index-id
 
 # Sync Configuration
-BATCH_SIZE=10  
+BATCH_SIZE=10
 INCLUDE_COMMENTS=true
 INCLUDE_HISTORY=false
 
@@ -155,12 +163,17 @@ PROJECTS=PROJECT1,PROJECT2
 ISSUE_TYPES=Bug,Task,Story
 JQL_FILTER=status != "Closed" AND updated >= -7d
 
+# Caching Configuration
+POWERTOOLS_IDEMPOTENCY_DISABLED=1  # Caching Options: 1 (Disabled), 0 (Enabled)
+CACHE_TABLE_NAME=jira-q-sync-cache
+
 # Access Control is enabled by default
 ```
 
 ### Configuration Details
 
 **Required Environment Variables:**
+
 - `JIRA_SERVER_URL`: Your Jira server URL
 - `JIRA_USERNAME`: Jira username or email
 - `JIRA_PASSWORD`: Jira password or API token
@@ -169,6 +182,7 @@ JQL_FILTER=status != "Closed" AND updated >= -7d
 - `Q_INDEX_ID`: Q Business index ID
 
 **Optional Configuration:**
+
 - `AWS_REGION`: AWS region (default: us-east-1)
 - `JIRA_VERIFY_SSL`: Verify SSL certificates (default: true)
 - `JIRA_TIMEOUT`: Request timeout in seconds (default: 30)
@@ -178,7 +192,9 @@ JQL_FILTER=status != "Closed" AND updated >= -7d
 - `PROJECTS`: Comma-separated project keys to sync
 - `ISSUE_TYPES`: Comma-separated issue types to sync
 - `JQL_FILTER`: Custom JQL filter for issue selection
-
+- `POWERTOOLS_IDEMPOTENCY_DISABLED`: Enable DynamoDB caching (default: 1 (Disabled))
+- `CACHE_TABLE_NAME`: DynamoDB table name for caching
+- `LAST_SYNC_DATE`: Last successful sync date for delta sync (default: '2010-01-01')
 
 ## 🎯 Usage
 
@@ -256,6 +272,7 @@ jira-q-connector doctor
 ```
 
 ### AWS Lambda
+
 Deploy as a Lambda function for serverless execution:
 
 ```python
@@ -270,7 +287,7 @@ def lambda_handler(event, context):
     try:
         # Set environment variables if needed
         # os.environ['JIRA_SERVER_URL'] = 'https://...'
-        
+
         # Run the CLI command
         result = subprocess.run(
             ['jira-q-connector', 'sync'],
@@ -278,7 +295,7 @@ def lambda_handler(event, context):
             text=True,
             timeout=900  # 15 minutes max
         )
-        
+
         # Check if command was successful
         if result.returncode == 0:
             return {
@@ -298,7 +315,7 @@ def lambda_handler(event, context):
                     'output': result.stdout
                 })
             }
-            
+
     except subprocess.TimeoutExpired:
         return {
             'statusCode': 408,
@@ -317,6 +334,47 @@ def lambda_handler(event, context):
         }
 ```
 
+### AWS Lambda using Step Functions Integration for Parallel Processing:
+
+Deploy as a Lambda function for serverless execution using Step Functions workflow:
+
+#### ⚙️ Configuration Requirements
+
+**AWS Systems Manager Parameter Store:**
+
+- `/jira-q-connector/BATCH_SIZE` - Batch size for document processing (default: 10)
+- `/jira-q-connector/INCLUDE_COMMENTS` - Include issue comments (default: true)
+- `/jira-q-connector/INCLUDE_HISTORY` - Include change history (default: false)
+- `/jira-q-connector/JIRA_SERVER_URL` - Jira server URL
+- `/jira-q-connector/JIRA_TIMEOUT` - Request timeout in seconds (default: 30)
+- `/jira-q-connector/JIRA_VERIFY_SSL` - Verify SSL certificates (default: true)
+- `/jira-q-connector/LAST_SYNC_DATE` - Last successful sync date for delta sync
+- `/jira-q-connector/Q_APPLICATION_ID` - Q Business application ID
+- `/jira-q-connector/Q_DATA_SOURCE_ID` - Q Business data source ID
+- `/jira-q-connector/Q_INDEX_ID` - Q Business index ID
+- `/jira-q-connector/POWERTOOLS_IDEMPOTENCY_DISABLED` - Disable idempotency (default: 1 (Disabled))
+- `/jira-q-connector/CACHE_TABLE_NAME` - DynamoDB table name for caching
+
+**AWS Secrets Manager:**
+
+- Secret name: `jira-q-connector-credentials`
+- Secret keys: `JIRA_USERNAME`, `JIRA_PASSWORD`
+
+#### Lambda Handler Implementation
+
+See `jira_q_sync_handler.py` for the complete Lambda function implementation that supports Step Functions workflow with the following actions:
+
+- `start_sync` - Initialize sync job
+- `acl_sync_plan` - Build ACL synchronization plan
+- `acl_sync` - Execute ACL synchronization
+- `issues_sync_plan` - Build issues synchronization plan
+- `issues_sync` - Execute issues synchronization (parallel execution supported)
+- `stop_sync` - Complete sync job and update last sync timestamp
+
+#### Step Functions Integration
+
+Use the `jira_q_sync_handler.py` Lambda function with AWS Step Functions to orchestrate the complete sync workflow for both full and delta synchronization.
+
 **Alternative: Using Python API for advanced control:**
 
 ```python
@@ -327,18 +385,18 @@ def lambda_handler(event, context):
     try:
         config = ConnectorConfig.from_env()
         connector = JiraQBusinessConnector(config)
-        
+
         # Start sync job and sync issues
         sync_job = connector.start_qbusiness_sync()
         execution_id = sync_job['execution_id']
-        
+
         # Sync issues with execution ID
         result = connector.sync_issues_with_execution_id(execution_id)
-        
+
         # Stop sync job
         connector.stop_qbusiness_sync(execution_id)
         connector.cleanup()
-        
+
         return {
             'statusCode': 200,
             'body': json.dumps(result)
@@ -356,16 +414,19 @@ def lambda_handler(event, context):
 ## 📚 API Reference
 
 ### JiraClient
+
 - `test_connection()`: Test Jira connectivity
 - `search_issues(jql, start_at, max_results)`: Search issues
 
-### QBusinessClient  
+### QBusinessClient
+
 - `test_connection()`: Test Q Business connectivity
 - `batch_put_documents_with_execution_id(documents, execution_id)`: Upload documents
 - `batch_delete_documents(ids)`: Delete documents
 - `start_data_source_sync()`: Start sync job
 
 ### JiraDocumentProcessor
+
 - `process_issue(issue, execution_id)`: Convert issue to Q Business document
 - `create_batch_documents(issues, execution_id)`: Process multiple issues
 

@@ -15,6 +15,7 @@ def get_requirements():
         "boto3>=1.26.0", 
         "pydantic>=1.8.0",
         "python-dotenv>=0.19.0",
+        "aws-lambda-powertools>=3.17.0",
     ]
 
 # Get version from package without importing

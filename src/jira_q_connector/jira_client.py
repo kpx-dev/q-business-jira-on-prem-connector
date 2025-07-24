@@ -202,11 +202,11 @@ class JiraClient:
         return changelog
     
     def get_all_issues_iterator(self, 
-                               jql: str = "", 
+                               jql: str = "",
+                               start_at: int = 0,
                                batch_size: int = 100,
                                fields: Optional[List[str]] = None) -> Iterator[Dict[str, Any]]:
         """Iterator to get all issues matching JQL query"""
-        start_at = 0
         
         while True:
             result = self.search_issues(
@@ -641,3 +641,25 @@ class JiraClient:
         except Exception as e:
             logger.error(f"Error getting role actors for project {project_key}, role {role_id}: {e}")
             return {}
+        
+    def get_issue_attachment(self, attachment_url: str) -> Dict[str, Any]:
+        endpoint = attachment_url.split('/rest/api/2/')[-1]
+
+        # Temporarily save original Accept header
+        original_accept = self.session.headers.get('Accept')
+
+        # Remove Accept header to let Jira accept Binary format
+        self.session.headers.pop('Accept', None)
+        
+        # Bypass cross-site request forgery (XSRF/CSRF) checks 
+        # https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---attachments/#api-wiki-rest-api-content-id-child-attachment-put
+        self.session.headers.update({'X-Atlassian-Token': 'no-check'})
+
+        try:
+            response = self._make_request('GET', endpoint )
+            return response
+        finally:
+            # Restore original Accept header
+            if original_accept:
+                self.session.headers.update({'Accept': original_accept})
+                self.session.headers.pop('X-Atlassian-Token', None)

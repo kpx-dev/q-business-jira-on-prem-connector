@@ -205,10 +205,6 @@ class QBusinessClient:
             # AWS Q Business BatchPutDocument has a limit of 10 documents per batch
             batch_size = min(len(documents), 10)
             
-            if len(documents) > batch_size:
-                logger.warning(f"Document batch size {len(documents)} exceeds limit of {batch_size}, truncating")
-                documents = documents[:batch_size]
-            
             # Add execution ID to each document's attributes
             for doc in documents:
                 if 'attributes' not in doc:
@@ -231,42 +227,51 @@ class QBusinessClient:
                     doc_copy = doc.copy()
                     # Show actual content for debugging (don't truncate)
                     logger.debug(f"  {json.dumps(doc_copy, indent=4, cls=DateTimeEncoder)}")
+
+            # AWS Q Business BatchPutDocument has a limit of 10 documents per batch
+            total_successful = 0
+            total_failed_docs = []
+            for i in range(0, len(documents), batch_size):
+                batch = documents[i:i + batch_size]
             
-            response = self.client.batch_put_document(
-                applicationId=self.qbusiness_config.application_id,
-                indexId=self.qbusiness_config.index_id,
-                documents=documents,
-                dataSourceSyncId=execution_id
-            )
-            
-            # Check for failed documents
-            failed_docs = response.get('failedDocuments', [])
-            successful_count = len(documents) - len(failed_docs)
-            
-            if failed_docs:
-                logger.warning(f"Failed to upload {len(failed_docs)} out of {len(documents)} documents")
+                response = self.client.batch_put_document(
+                    applicationId=self.qbusiness_config.application_id,
+                    indexId=self.qbusiness_config.index_id,
+                    documents=batch,
+                    dataSourceSyncId=execution_id
+                )
                 
-                for failed_doc in failed_docs:
-                    doc_id = failed_doc.get('id', 'unknown')
+                # Check for failed documents
+                failed_docs = response.get('failedDocuments', [])
+                successful_count = len(batch) - len(failed_docs)
+
+                total_successful += successful_count
+                total_failed_docs.extend(failed_docs)
+                
+                if failed_docs:
+                    logger.warning(f"Failed to upload {len(failed_docs)} out of {len(batch)} documents")
                     
-                    # Handle nested error structure
-                    error_obj = failed_doc.get('error', {})
-                    if error_obj:
-                        error_code = error_obj.get('errorCode', 'unknown')
-                        error_message = error_obj.get('errorMessage', 'Unknown error')
-                    else:
-                        # Fallback to old format
-                        error_code = failed_doc.get('errorCode', 'unknown')
-                        error_message = failed_doc.get('errorMessage', 'Unknown error')
-                    
-                    logger.error(f"Document {doc_id} failed: {error_code} - {error_message}")
+                    for failed_doc in failed_docs:
+                        doc_id = failed_doc.get('id', 'unknown')
+                        
+                        # Handle nested error structure
+                        error_obj = failed_doc.get('error', {})
+                        if error_obj:
+                            error_code = error_obj.get('errorCode', 'unknown')
+                            error_message = error_obj.get('errorMessage', 'Unknown error')
+                        else:
+                            # Fallback to old format
+                            error_code = failed_doc.get('errorCode', 'unknown')
+                            error_message = failed_doc.get('errorMessage', 'Unknown error')
+                        
+                        logger.error(f"Document {doc_id} failed: {error_code} - {error_message}")
             
             return {
                 'success': True,
-                'message': f"Uploaded {successful_count} out of {len(documents)} documents",
-                'uploaded_count': successful_count,
-                'failed_count': len(failed_docs),
-                'failed_documents': failed_docs
+                'message': f"Uploaded {total_successful} out of {len(documents)} documents",
+                'uploaded_count': total_successful,
+                'failed_count': len(total_failed_docs),
+                'failed_documents': total_failed_docs
             }
             
         except Exception as e:

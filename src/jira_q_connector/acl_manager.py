@@ -18,7 +18,7 @@ class ACLManager:
         self.project_permissions_cache = {}
         self.group_members_cache = {}
     
-    def sync_jira_acl_to_qbusiness(self, jira_client, qbusiness_client) -> Dict[str, Any]:
+    def sync_jira_acl_to_qbusiness(self, jira_client, qbusiness_client, project_keys: list = None) -> Dict[str, Any]:
         """
         Sync Jira ACL to Q Business User Store
         
@@ -47,9 +47,17 @@ class ACLManager:
             logger.info("Starting comprehensive ACL synchronization from Jira to Q Business")
             
             # Step 1: Get all projects to process
-            projects = jira_client.get_all_projects()
-            logger.info(f"Found {len(projects)} projects to process")
-            
+            all_projects = jira_client.get_all_projects()
+            logger.info(f"Found {len(all_projects)} projects to process")
+
+            if not project_keys:
+                projects = all_projects
+            else:
+                projects = [
+                    project for project in all_projects 
+                    if project.get('key') in project_keys
+                ]
+
             # Track all users and groups to sync
             all_users = set()
             all_groups = {}  # group_name -> {members: [...], projects: [...]}
