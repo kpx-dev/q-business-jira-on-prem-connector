@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, List
 from pathlib import Path
+import json
+import boto3
 from dotenv import load_dotenv
 
 @dataclass
@@ -46,30 +48,33 @@ class ConnectorConfig:
     projects: Optional[List[str]] = None
     issue_types: Optional[List[str]] = None
     jql_filter: Optional[str] = None
+    last_sync_date: Optional[str] = None
+    cache_table_name: Optional[str] = None
     
     # Caching options
     # Access Control is always enabled
     
     @classmethod
-    def from_env(cls):
+    def from_env(cls, env_loaded: bool = False):
         """Create configuration from environment variables and .env file"""
         # Load .env file from current directory or project root
-        env_paths = [
-            Path(".env"),                    # Current directory
-            Path("./.env"),                  # Explicit current directory
-            Path("../.env"),                 # Parent directory
-            Path("../../.env"),              # Two levels up
-            Path.cwd() / ".env",             # Current working directory
-        ]
-        
-        # Try to find and load .env file
-        env_loaded = False
-        for env_path in env_paths:
-            if env_path.exists():
-                load_dotenv(env_path, override=True)
-                print(f"📋 Loaded environment from: {env_path.absolute()}")
-                env_loaded = True
-                break
+
+        if not env_loaded:
+            env_paths = [
+                Path(".env"),                    # Current directory
+                Path("./.env"),                  # Explicit current directory
+                Path("../.env"),                 # Parent directory
+                Path("../../.env"),              # Two levels up
+                Path.cwd() / ".env",             # Current working directory
+            ]
+            
+            # Try to find and load .env file
+            for env_path in env_paths:
+                if env_path.exists():
+                    load_dotenv(env_path, override=True)
+                    print(f"📋 Loaded environment from: {env_path.absolute()}")
+                    env_loaded = True
+                    break
         
         if not env_loaded:
             print("⚠️  No .env file found. Using system environment variables only.")
@@ -110,13 +115,73 @@ class ConnectorConfig:
             # Filtering options
             projects=os.environ.get("PROJECTS", "").split(",") if os.environ.get("PROJECTS") else None,
             issue_types=os.environ.get("ISSUE_TYPES", "").split(",") if os.environ.get("ISSUE_TYPES") else None,
-            jql_filter=os.environ.get("JQL_FILTER")
+            jql_filter=os.environ.get("JQL_FILTER"),
+            last_sync_date=os.environ.get("LAST_SYNC_DATE", "2010-01-01"),
+            cache_table_name=os.environ.get("CACHE_TABLE_NAME", "jira-q-sync-cache")
         )
         
         # Validate required configuration
         cls._validate_config(config)
         
         return config
+    
+    @classmethod
+    def from_ssm(cls, path_prefix="/jira-q-connector/"):
+        """Create configuration from SSM Parameter Store"""
+
+        ssm = boto3.client('ssm')
+        params = {}
+        next_token = None
+        
+        # Fetch all params from parameter store
+        while True:
+            # Prepare request parameters
+            request_args = {
+                'Path': path_prefix,
+                'Recursive': True,
+                'WithDecryption': True
+            }
+            
+            # Add NextToken if we have one
+            if next_token:
+                request_args['NextToken'] = next_token
+                
+            # Make the API call
+            response = ssm.get_parameters_by_path(**request_args)
+            
+            # Process parameters from this page
+            for param in response['Parameters']:
+                name = param['Name'].split('/')[-1]
+                params[name] = param['Value']
+            
+            # Check if there are more parameters to fetch
+            if 'NextToken' in response:
+                next_token = response['NextToken']
+            else:
+                break
+
+        print(f"🔑 {len(params)} parameters loaded from SSM")
+        print(f"🔑 Parameters loaded: {', '.join(params.keys())}")
+
+        # Set environment variables temporarily
+        for key, value in params.items():
+            os.environ[key] = value
+
+        # Initialize Secrets Manager client
+        client = boto3.client('secretsmanager')
+        
+        # Get secret value
+        response = client.get_secret_value(SecretId='jira-q-connector')
+        
+        # Parse secret string to JSON
+        secret_data = json.loads(response['SecretString'])
+        
+        # Set environment variables
+        os.environ['JIRA_USERNAME'] = secret_data.get('JIRA_USERNAME')
+        os.environ['JIRA_PASSWORD'] = secret_data.get('JIRA_PASSWORD')
+        
+        # Use existing from_env method
+        return cls.from_env(env_loaded=True)
     
     @classmethod
     def _validate_config(cls, config):
@@ -138,7 +203,7 @@ class ConnectorConfig:
             errors.append("Q_DATA_SOURCE_ID is required")
         if not config.qbusiness.index_id:
             errors.append("Q_INDEX_ID is required")
-        
+
         if errors:
             print("❌ Configuration errors found:")
             for error in errors:

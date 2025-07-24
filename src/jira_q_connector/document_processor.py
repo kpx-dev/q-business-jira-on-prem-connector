@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 import html
 import re
+import base64
 
 from .field_utils import FieldExtractor, ContentBuilder
 
@@ -336,7 +337,7 @@ class JiraDocumentProcessor:
         
         return '\n'.join(history_texts)
     
-    def _create_document_attributes(self, issue: Dict[str, Any], fields: Dict[str, Any], execution_id: str = None) -> List[Dict[str, Any]]:
+    def _create_document_attributes(self, issue: Dict[str, Any], fields: Dict[str, Any], execution_id: str = None, is_attachment: bool = False) -> List[Dict[str, Any]]:
         """Create document attributes for Q Business using simplified approach"""
         attributes = []
         
@@ -366,30 +367,31 @@ class JiraDocumentProcessor:
             FieldExtractor.create_attribute('jira_fix_versions', FieldExtractor.extract_array_names(fields.get('fixVersions', []))),
         ]))
         
-        # Agile attributes
-        attributes.extend(filter(None, [
-            FieldExtractor.create_attribute('jira_epic_link', fields.get('customfield_10014')),
-            FieldExtractor.create_attribute('jira_story_points', fields.get('customfield_10016')),
-            FieldExtractor.create_attribute('jira_sprint', FieldExtractor.extract_sprint_names(fields.get('customfield_10020'))),
-            FieldExtractor.create_attribute('jira_team', FieldExtractor.extract_custom_field_value(fields.get('customfield_10021'))),
-        ]))
-        
-        # Engagement metrics
-        votes = fields.get('votes', {})
-        if votes.get('votes', 0) > 0:
-            attributes.append(FieldExtractor.create_attribute('jira_votes', votes['votes']))
-        
-        watches = fields.get('watches', {})
-        if watches.get('watchCount', 0) > 0:
-            attributes.append(FieldExtractor.create_attribute('jira_watchers', watches['watchCount']))
-        
-        # Attachment count
-        attachments = fields.get('attachment', [])
-        if attachments:
-            attributes.append(FieldExtractor.create_attribute('jira_attachment_count', len(attachments)))
-            attachment_names = [att.get('filename') for att in attachments if att.get('filename')]
-            if attachment_names:
-                attributes.append(FieldExtractor.create_attribute('jira_attachment_names', attachment_names))
+        if not is_attachment:
+            # Agile attributes
+            attributes.extend(filter(None, [
+                FieldExtractor.create_attribute('jira_epic_link', fields.get('customfield_10014')),
+                FieldExtractor.create_attribute('jira_story_points', fields.get('customfield_10016')),
+                FieldExtractor.create_attribute('jira_sprint', FieldExtractor.extract_sprint_names(fields.get('customfield_10020'))),
+                FieldExtractor.create_attribute('jira_team', FieldExtractor.extract_custom_field_value(fields.get('customfield_10021'))),
+            ]))
+            
+            # Engagement metrics
+            votes = fields.get('votes', {})
+            if votes.get('votes', 0) > 0:
+                attributes.append(FieldExtractor.create_attribute('jira_votes', votes['votes']))
+            
+            watches = fields.get('watches', {})
+            if watches.get('watchCount', 0) > 0:
+                attributes.append(FieldExtractor.create_attribute('jira_watchers', watches['watchCount']))
+            
+            # Attachment count
+            attachments = fields.get('attachment', [])
+            if attachments:
+                attributes.append(FieldExtractor.create_attribute('jira_attachment_count', len(attachments)))
+                attachment_names = [att.get('filename') for att in attachments if att.get('filename')]
+                if attachment_names:
+                    attributes.append(FieldExtractor.create_attribute('jira_attachment_names', attachment_names))
         
         return [attr for attr in attributes if attr is not None]
     
@@ -416,3 +418,55 @@ class JiraDocumentProcessor:
         
         logger.info(f"Processed {len(documents)} documents from {len(issues)} issues")
         return documents 
+    
+    def process_attachment(self, issue: Dict[str, Any], attachment: Dict[str, Any], execution_id: str = None, jira_client=None) -> Dict[str, Any]:
+        """Convert a Jira attachment to Q Business document format"""
+        try:
+            fields = issue.get('fields', {})
+            key = issue.get('key', '')
+            url = attachment.get('content', '')
+            id = attachment.get('id', '')
+            filename = attachment.get('filename', '')
+            mime_type = attachment.get('mimeType', '')
+
+            # extract attachment and convert into base64
+            response = jira_client.get_issue_attachment(url)
+
+            # Map MIME type to Q Business content type
+            content_type = self._get_content_type(mime_type, filename)
+
+            # Create document attributes
+            attributes = self._create_document_attributes(issue, fields, execution_id, is_attachment=True)
+            
+            # Create Q Business document
+            document = {
+                'id': f"jira-issue-attachment-{key}-{id}",
+                'title': f"{filename}",
+                'content': {
+                    'blob': response.content
+                },
+                'attributes': attributes,
+                'contentType': content_type
+            }
+
+            logger.debug(f"Processed attachment {filename} for issue {key} into document with contentType {content_type}")
+            
+            return document
+            
+        except Exception as e:
+            logger.error(f"Error processing attachment {attachment.get('filename', 'unknown')}: {e}")
+            return None
+    
+    def _get_content_type(self, mime_type: str, filename: str) -> str:
+        """Map MIME type to Q Business content type"""
+        mime_type = mime_type.lower()
+        filename = filename.lower()
+        
+        if 'pdf' in mime_type or filename.endswith('.pdf'):
+            return 'PDF'
+        elif 'word' in mime_type or filename.endswith(('.doc', '.docx')):
+            return 'MS_WORD'
+        elif 'powerpoint' in mime_type or filename.endswith(('.ppt', '.pptx')):
+            return 'PPT'
+        else:
+            return 'PLAIN_TEXT'  # Default fallback
