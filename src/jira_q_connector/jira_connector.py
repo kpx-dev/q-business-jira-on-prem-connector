@@ -48,7 +48,7 @@ class JiraQBusinessConnector:
             event_key_jmespath="[key, fields.updated]",
             raise_on_no_idempotency_key=True,
             expires_after_seconds = 259200          # 3 days
-        ),              
+        )
         self.persistent_store = DynamoDBPersistenceLayer(table_name=self.config.cache_table_name)
     
     def test_connections(self) -> Dict[str, Any]:

@@ -80,6 +80,10 @@ class ConnectorConfig:
             print("⚠️  No .env file found. Using system environment variables only.")
             print("💡 Create a .env file from env.example for easier configuration.")
         
+        # Set default for POWERTOOLS_IDEMPOTENCY_DISABLED if not already set
+        if not os.environ.get("POWERTOOLS_IDEMPOTENCY_DISABLED"):
+            os.environ["POWERTOOLS_IDEMPOTENCY_DISABLED"] = "1"
+        
         # Jira configuration
         jira_config = JiraConfig(
             server_url=os.environ.get("JIRA_SERVER_URL", ""),
