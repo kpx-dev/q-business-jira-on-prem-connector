@@ -375,6 +375,8 @@ See `jira_q_sync_handler.py` for the complete Lambda function implementation tha
 
 Use the `jira_q_sync_handler.py` Lambda function with AWS Step Functions to orchestrate the complete sync workflow for both full and delta synchronization.
 
+[High-Level Step Functions Pipeline Overview](docs/diagrams/jira-custom-connector-drawio.png)
+
 **Alternative: Using Python API for advanced control:**
 
 ```python

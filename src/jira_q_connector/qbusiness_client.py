@@ -226,7 +226,10 @@ class QBusinessClient:
                     logger.debug(f"Document {i+1} API payload:")
                     doc_copy = doc.copy()
                     # Show actual content for debugging (don't truncate)
-                    logger.debug(f"  {json.dumps(doc_copy, indent=4, cls=DateTimeEncoder)}")
+                    try:
+                        logger.debug(f"  {json.dumps(doc_copy, indent=4, cls=DateTimeEncoder)}")
+                    except (TypeError, UnicodeDecodeError) as e:
+                        logger.debug(f" Document contains binary data that cannot be JSON serialized: {e}")
 
             # AWS Q Business BatchPutDocument has a limit of 10 documents per batch
             total_successful = 0
